@@ -524,6 +524,15 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         name = " ".join(kept) if kept else name
         if not name or _is_ours(name):
             continue
+        if not any(w[:1].isupper() for w in name.split()):
+            # «директор», «финансистка» — роль без имени: не новый человек; если он один такой в организации — это он
+            _oref = refs.get(p.get("org_ref") or "")
+            if _oref and _oref[0] == "org":
+                same = [j.person for j in s.scalars(select(Job).where(Job.org_id == _oref[1].id))
+                        if (p.get("role") or name).lower()[:5] in (j.role or "").lower()]
+                if len(same) == 1:
+                    refs[p.get("ref") or name] = ("person", same[0])
+            continue
         _oref = refs.get(p.get("org_ref") or "")
         person = find_person(s, name, p.get("id"), _oref[1].id if _oref and _oref[0] == "org" else None)
         if person is None:
