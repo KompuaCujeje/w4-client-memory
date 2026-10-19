@@ -790,12 +790,18 @@ def rewrite_wiki(s: Session, org_id: int, ev: Event) -> None:
         Wiki(
             org_id=org_id,
             version=(prev.version + 1) if prev else 1,
-            text=data.get("text") or "",
-            changes=data.get("changes") or f"событие [{ev.code}]",
+            text=_clean(s, data.get("text") or ""),
+            changes=_clean(s, data.get("changes") or f"событие [{ev.code}]"),
             event_code=ev.code,
         )
     )
     s.commit()
+
+
+def _clean(s: Session, text: str) -> str:
+    from .qa import clean_refs
+
+    return clean_refs(s, text)
 
 
 def done_message(s: Session, ev: Event) -> str:

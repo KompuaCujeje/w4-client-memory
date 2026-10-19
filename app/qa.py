@@ -93,9 +93,20 @@ def base_context(s: Session) -> str:
     return "\n".join(lines)
 
 
+def clean_refs(s: Session, text: str) -> str:
+    """Убирает ссылки на несуществующие события: ИИ не должен выдумывать источники."""
+    known = set(s.scalars(select(Event.code)))
+
+    def fix(m):
+        codes = [c for c in re.split(r"\s*[,;]\s*", m.group(1)) if c in known]
+        return "[" + ", ".join(codes) + "]" if codes else ""
+
+    return re.sub(r"\[((?:[EU]\d+(?:[.#]\d+)?)(?:\s*[,;]\s*[EU]\d+(?:[.#]\d+)?)*)\]", fix, text or "")
+
+
 def answer(s: Session, question: str) -> str:
     ctx = base_context(s)
-    return llm.chat_text(prompts.ANSWER_SYSTEM, f"БАЗА CRM:\n{ctx}\n\nВОПРОС: {question}")
+    return clean_refs(s, llm.chat_text(prompts.ANSWER_SYSTEM, f"БАЗА CRM:\n{ctx}\n\nВОПРОС: {question}"))
 
 
 def find_org_by_text(s: Session, text: str) -> Org | None:
@@ -124,7 +135,7 @@ def brief(s: Session, org: Org) -> str:
          "stale": d.stale, "risks": [f"{r.text} [{r.event_code}]" for r in d.risks]}
         for d in (analytics.deal_state(s, p, today) for p in org.projects)
     ]
-    return llm.chat_text(prompts.BRIEF_SYSTEM, f"Дата: {today}\nКАРТОЧКА (JSON):\n{json.dumps(card, ensure_ascii=False)}\n\n{prompts.BRIEF_FORMAT}")
+    return clean_refs(s, llm.chat_text(prompts.BRIEF_SYSTEM, f"Дата: {today}\nКАРТОЧКА (JSON):\n{json.dumps(card, ensure_ascii=False)}\n\n{prompts.BRIEF_FORMAT}"))
 
 
 def is_question(text: str) -> bool:
