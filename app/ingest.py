@@ -34,7 +34,7 @@ from .db import (
     latest_wiki,
     session,
 )
-from .names import org_key, same_person
+from .names import org_core, org_key, same_person
 
 log = logging.getLogger("ingest")
 
@@ -321,8 +321,23 @@ def split_chat(s: Session, ev: Event) -> None:
     s.commit()
 
 
-def registry_snapshot(s: Session) -> str:
-    orgs = [{"id": o.id, "name": o.name, "aliases": o.aliases, "city": o.city} for o in s.scalars(select(Org))]
+def _relevant_orgs(s: Session, text: str) -> set[int]:
+    """Клиенты из событий + лиды таблицы, чьё имя встречается в тексте события. Остальных ИИ не показываем — дешевле."""
+    keep: set[int] = set()
+    for e in s.scalars(select(Event).where(Event.parent == "", Event.channel != "таблица")):
+        keep |= set(e.org_ids or [])
+    low = org_key(text or "")
+    for o in s.scalars(select(Org)):
+        for n in [o.name] + list(o.aliases or []):
+            core = org_core(n)
+            if core and len(core) > 3 and core in low:
+                keep.add(o.id)
+    return keep
+
+
+def registry_snapshot(s: Session, text: str = "") -> str:
+    keep = _relevant_orgs(s, text)
+    orgs = [{"id": o.id, "name": o.name, "aliases": o.aliases, "city": o.city} for o in s.scalars(select(Org)) if o.id in keep]
     people = []
     for p in s.scalars(select(Person)):
         people.append(
@@ -345,6 +360,7 @@ def registry_snapshot(s: Session) -> str:
             "manager": j.manager,
         }
         for j in s.scalars(select(Project).where(Project.duplicate_of.is_(None)))
+        if j.org_id in keep
     ]
     facts = [
         {
@@ -360,7 +376,7 @@ def registry_snapshot(s: Session) -> str:
         for f in s.scalars(
             select(Fact).where(Fact.kind.in_(["budget", "deadline", "scope", "decision", "promise", "request", "waiting", "risk"]))
         )
-        if not f.superseded_by
+        if not f.superseded_by and f.org_id in keep
     ]
     return json.dumps({"orgs": orgs, "people": people, "projects": projects, "facts": facts}, ensure_ascii=False)
 
@@ -382,7 +398,7 @@ def event_payload(s: Session, ev: Event) -> str:
 def extract_and_apply(s: Session, ev: Event) -> list[int]:
     user = (
         "РЕЕСТР СЕЙЧАС (JSON):\n"
-        + registry_snapshot(s)
+        + registry_snapshot(s, event_payload(s, ev))
         + "\n\nСОБЫТИЕ:\n"
         + event_payload(s, ev)
         + "\n\n"
