@@ -419,6 +419,15 @@ def find_person(s: Session, name: str, pid=None) -> Person | None:
     return p  # «Анна Р.» = «Анна Игоревна Римская» — узнаёт ИИ
 
 
+def _merge_names(cur: str, new: str) -> str:
+    """Дополняет имя недостающими словами из нового написания того же человека."""
+    a, b = cur.split(), new.split()
+    if not a or not b or a[0].lower().rstrip(".") != b[0].lower().rstrip(".") or len(b[0].rstrip(".")) < 2:
+        return cur if len(b) <= len(a) or not set(w.lower() for w in a) <= set(w.lower() for w in b) else new
+    extra = [w for w in b[1:] if w.lower() not in {x.lower() for x in a} and len(w.rstrip(".")) > 1]
+    return " ".join(a + extra) if extra and len(a) + len(extra) <= 3 else cur
+
+
 def _is_ours(name: str) -> bool:
     n = (name or "").lower()
     return any(x in n for x in ("ларин", "соболь", "северный мост"))
@@ -470,10 +479,11 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             person = Person(name=name, aliases=[], first_event=ev.code, note=p.get("note") or "")
             s.add(person)
             s.flush()
-        elif len(name.split()) > len(person.name.split()) and set(person.name.lower().split()) <= set(name.lower().split()):
-            old = person.name
-            person.name = name  # «Елена Павловна» → «Елена Павловна Власова»
-            _add_aliases(person, [old])
+        else:
+            merged = _merge_names(person.name, name)
+            if merged != person.name:
+                _add_aliases(person, [person.name])
+                person.name = merged  # «Елена Павловна» + «Елена Власова» → «Елена Павловна Власова»
         _add_aliases(person, [name] + list(p.get("aliases") or []))
         refs[p.get("ref") or f"p{person.id}"] = ("person", person)
         org_ref = refs.get(p.get("org_ref") or "")
@@ -633,7 +643,7 @@ def _set_stage(proj: Project, stage: str, date: dt.date, code: str) -> None:
     proj.stage_dates, proj.stage_history, proj.stage = sd, hist, stage
 
 
-VALUE_KINDS = ("budget", "deadline", "scope", "decision")
+VALUE_KINDS = ("budget", "deadline", "decision")  # объём работ копится пунктами, его смену ИИ пишет новым фактом
 
 
 def _supersede(s: Session, fact: Fact, ev: Event) -> None:
@@ -643,6 +653,8 @@ def _supersede(s: Session, fact: Fact, ev: Event) -> None:
     q = select(Fact).where(Fact.kind == fact.kind, Fact.id != fact.id, Fact.superseded_by == "")
     q = q.where(Fact.project_id == fact.project_id) if fact.project_id else q.where(Fact.org_id == fact.org_id)
     for old in s.scalars(q):
+        if old.event_code.split(".")[0] == fact.event_code.split(".")[0]:
+            continue  # несколько пунктов из одного события не заменяют друг друга
         if old.date and fact.date and old.date == fact.date and CHANNEL_DEPTH.get(old.channel, 0) > CHANNEL_DEPTH.get(fact.channel, 0):
             fact.superseded_by = old.event_code  # мельче источник в тот же день — не перебивает
         else:
