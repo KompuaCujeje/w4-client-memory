@@ -1,0 +1,32 @@
+# Чертёж для Render: New → Blueprint → этот репозиторий. Создаст базу и сервис сам.
+databases:
+  - name: w4-crm-db
+    plan: free
+    region: frankfurt
+    databaseName: crm
+    user: crm
+
+services:
+  - type: web
+    name: w4-client-memory
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/status
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL
+        fromDatabase:
+          name: w4-crm-db
+          property: connectionString
+      - key: LLM_API_KEY          # ключ ProxyAPI — вводится на Render, в код не попадает
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN   # токен от @BotFather — вводится на Render
+        sync: false
+      - key: RESET_CODE           # слово-пароль для очистки базы во время тестов
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true

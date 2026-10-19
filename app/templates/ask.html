@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Спросить базу</h1>
+<form class="inline"><input name="q" value="{{ q }}" style="flex:1;min-width:280px" placeholder="Например: что мы обещали Медлайну?"><button>Спросить</button></form>
+{% if answer %}<div class="card answer">{{ answer|md|safe }}</div>
+<p class="small muted">Ответ собран только по базе CRM. Ссылки ведут на события-источники.</p>{% endif %}
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ o.name }} · CRM{% endblock %}
+{% block body %}
+<h1>{{ o.name }}</h1>
+<p class="muted">{% if o.city %}{{ o.city }} · {% endif %}{% if o.aliases %}другие имена: {{ o.aliases|join(", ") }} · {% endif %}первое событие <a class="src" href="{{ code_href(o.first_event) }}">{{ o.first_event }}</a></p>
+<p><a class="btn" href="/org/{{ o.id }}/brief">Справка к встрече</a> <span class="small muted">собирается за 10–30 секунд</span></p>
+
+<div class="grid g2">
+<div>
+  <h2>Сделки</h2>
+  <table><tr><th>Проект</th><th>Этап и история</th><th>Последний живой контакт</th></tr>
+  {% for d in deals %}{% set p = d.project %}
+  <tr><td><b>{{ p.title }}</b><br><span class="small muted">{{ p.product }} · {{ p.manager or "менеджер не указан" }}</span>
+    {% if p.duplicate_of %}<br><span class="tag dup">дубль сделки {{ p.duplicate_of }} — не считается</span>{% endif %}
+    {% if p.paused %}<br><span class="tag unc">пауза</span>{% endif %}
+    {% if p.close_reason %}<br><span class="small">причина: {{ p.close_reason }}</span>{% endif %}</td>
+  <td><b>{{ p.stage }}</b><br><span class="small">{% for h in p.stage_history %}{{ h.stage }} {{ h.date }} <a class="src" href="{{ code_href(h.event) }}">{{ h.event }}</a>{% if not loop.last %} → {% endif %}{% endfor %}</span></td>
+  <td>{{ d.last_contact or "нет" }} {% if d.last_contact_event %}<a class="src" href="{{ code_href(d.last_contact_event) }}">{{ d.last_contact_event }}</a>{% endif %}
+    {% if d.is_open %}<br>{% if d.stale %}<span class="tag stale">протухла: {{ d.days }} дн.</span>{% else %}<span class="tag ok">живая{% if d.days is not none %}: {{ d.days }} дн.{% endif %}</span>{% endif %}{% endif %}
+    {% for r in d.risks %}<br><span class="tag risk">риск с {{ r.date }}</span> {{ r.text }} <a class="src" href="{{ code_href(r.event_code) }}">{{ r.event_code }}</a>{% endfor %}</td></tr>
+  {% else %}<tr><td colspan="3" class="muted">Сделок нет</td></tr>{% endfor %}
+  </table>
+  <p class="small muted">Дата вопроса: {{ as_of }}. Протухла — открытая сделка без живого контакта больше 42 дней.</p>
+
+  <h2>Вики {% if wiki %}<span class="small muted">версия {{ wiki.version }} от {{ wiki.created_at.strftime("%d.%m %H:%M") }}</span>{% endif %}</h2>
+  {% if wiki %}
+  <div class="changes"><b>Что изменилось</b> после <a class="src" href="{{ code_href(wiki.event_code) }}">{{ wiki.event_code }}</a>: {{ wiki.changes|linkify|safe }}</div>
+  <div class="card wiki">{{ wiki.text|md|safe }}</div>
+  {% if versions|length > 1 %}<p class="small">Версии: {% for w in versions %}<a href="/org/{{ o.id }}?v={{ w.version }}">v{{ w.version }} ({{ w.event_code }})</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+  {% else %}<p class="muted">Вики появится после первого разобранного события об этой организации.</p>{% endif %}
+
+  <h2>Факты по источникам</h2>
+  <p class="small muted">Глубина источника: расшифровка → письмо → переписка → голосовая → записка. <span class="tag unc">не подтверждено</span> — факт только из голосовой или записки. Зачёркнутое — заменено более новым или более глубоким источником.</p>
+  {% for k in order %}
+  <h3>{{ KIND_NAMES.get(k, k) }}</h3>
+  <ul>{% for f in grouped[k] %}
+    <li class="{{ 'strike' if f.superseded_by }}">{{ f.text }}{% if f.value and f.value not in f.text %} — <b>{{ f.value }}</b>{% endif %}
+      <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }} · {{ f.channel }}</span>
+      {% if f.project_id and projects_by_id.get(f.project_id) %}<span class="tag">{{ projects_by_id[f.project_id].product or projects_by_id[f.project_id].title }}</span>{% endif %}
+      {% if not f.confirmed %}<span class="tag unc">не подтверждено</span>{% endif %}
+      {% if f.confidential %}<span class="tag conf">конфиденциально</span>{% endif %}
+      {% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}">{{ f.done_event }}</a></span>{% elif k in ("promise","request") %}<span class="tag stale">открыто</span>{% endif %}
+      {% if f.superseded_by %}<span class="small">заменено <a href="{{ code_href(f.superseded_by) }}">{{ f.superseded_by }}</a></span>{% endif %}
+      {% if f.quote %}<br><span class="small muted">«{{ f.quote }}»</span>{% endif %}</li>
+  {% endfor %}</ul>
+  {% endfor %}
+</div>
+<div>
+  <h2>Люди</h2>
+  {% for j in jobs %}
+  <div class="card" style="margin-bottom:8px"><a href="/person/{{ j.person.id }}"><b>{{ j.person.name }}</b></a><br>
+    <span class="small">{{ j.role or "роль не названа" }} · {% if j.current %}<span class="tag ok">сейчас</span>{% else %}<span class="tag dup">раньше, до {{ j.until }}</span>{% endif %} с {{ j.since }} <a class="src" href="{{ code_href(j.event_code) }}">{{ j.event_code }}</a></span>
+    {% if j.person.aliases %}<br><span class="small muted">также: {{ j.person.aliases|join(", ") }}</span>{% endif %}</div>
+  {% else %}<p class="muted">Нет.</p>{% endfor %}
+
+  <h2>Противоречия</h2>
+  {% for c in conflicts %}
+  <div class="card" style="margin-bottom:8px"><b>{{ c.subject }}</b><br>
+  «{{ c.version_a }}» <a class="src" href="{{ code_href(c.event_a) }}">{{ c.event_a }}</a><br>
+  «{{ c.version_b }}» <a class="src" href="{{ code_href(c.event_b) }}">{{ c.event_b }}</a><br>
+  <span class="small muted">{{ c.verdict }}</span></div>
+  {% else %}<p class="muted">Нет.</p>{% endfor %}
+
+  <h2>Лента событий</h2>
+  <ul class="feed" style="padding-left:18px">
+  {% for e in events %}<li><a href="{{ code_href(e.code) }}">{{ e.code }}</a> <span class="small muted">{{ e.date }} · {{ e.channel }}{% if e.live_contact %} · живой контакт{% endif %}{% if e.internal %} · внутри студии{% endif %}</span><br><span class="small">{{ e.summary }}</span></li>
+  {% else %}<li class="muted">Нет.</li>{% endfor %}
+  </ul>
+</div>
+</div>
+{% endblock %}

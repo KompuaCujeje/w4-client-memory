@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Воронка и работа менеджеров</h1>
+<p class="muted">По старой таблице (лиды января — июня). Дубль сделки (та же организация и тот же продукт) считается один раз — за тем, кто завёл первым.
+Лид дошёл до этапа, если у этого или более позднего этапа стоит дата или текущий этап не ниже. Закрытый без сделки — дошёл до последнего этапа с датой.</p>
+
+<div class="grid g3">
+{% for name, fn in fns.items() %}
+<div class="card"><h3 style="margin-top:0">{{ name }}</h3>
+<table>
+<tr><th>Этап</th><th>Дошли</th><th>Конверсия</th></tr>
+{% for r in fn %}<tr><td>{{ r.stage }}</td><td><a href="/projects?stage=&manager={{ '' if name=='Всего' else name }}">{{ r.count }}</a></td><td>{% if r.conv is defined and r.conv is not none %}{{ r.conv }}%{% else %}—{% endif %}</td></tr>{% endfor %}
+</table></div>
+{% endfor %}
+</div>
+
+<h2>Менеджеры</h2>
+<table><tr><th>Менеджер</th><th>Сделок в таблице</th><th>Пропущенных дат этапов</th><th>Открытых без контакта &gt;42 дн. (на {{ as_of }})</th></tr>
+{% for r in mgrs %}
+<tr><td><b>{{ r.manager }}</b></td>
+<td><a href="/projects?manager={{ r.manager }}">{{ r.deals }}</a></td>
+<td>{{ r.missing }}<br><span class="small">{% for p, miss in r.missing_rows %}<a href="{{ code_href(p.source) }}">{{ p.source }}</a> {{ p.org.name }}: {{ miss|join(", ") }}<br>{% endfor %}</span></td>
+<td><a href="/projects?manager={{ r.manager }}&flag=stale">{{ r.stale }}</a><br><span class="small">{% for d in r.stale_deals %}<a href="/org/{{ d.project.org_id }}">{{ d.project.org.name }}</a> ({{ d.days }} дн.)<br>{% endfor %}</span></td></tr>
+{% endfor %}
+</table>
+<p><b>Хуже по правилу: {{ worse }}.</b> <span class="muted">{{ rule }}</span></p>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ e.code }} · CRM{% endblock %}
+{% block body %}
+<h1>Событие {{ e.code }}</h1>
+<p class="muted">{{ e.date or "дата не указана" }} · {{ e.channel }}{% if e.author %} · {{ e.author }}{% endif %}{% if e.source %} · {{ e.source }}{% endif %}
+{% if parent %} · часть <a href="{{ code_href(parent.code) }}">{{ parent.code }}</a>{% endif %}
+{% if e.is_audio %} · <span class="tag unc">распознано из аудио — имена и числа проверяйте</span>{% endif %}</p>
+{% if e.summary %}<div class="changes">{{ e.summary }}</div>{% endif %}
+{% if orgs %}<p>Организации: {% for o in orgs %}<a href="/org/{{ o.id }}">{{ o.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+<p>{% if e.live_contact %}<span class="tag ok">живой контакт{% if e.contact_kind %}: {{ e.contact_kind }}{% endif %}</span>{% endif %}
+{% if e.internal %}<span class="tag dup">переписка внутри студии — не контакт</span>{% endif %}
+{% if e.same_meeting_as %}<span class="tag dup">та же встреча, что <a href="{{ code_href(e.same_meeting_as) }}">{{ e.same_meeting_as }}</a> — не новый контакт</span>{% endif %}
+{% if e.status == "error" %}<span class="tag risk">ошибка разбора: {{ e.error }}</span>{% endif %}</p>
+
+{% if children %}
+<h2>Сообщения / строки</h2>
+<table><tr><th>Код</th><th>Дата</th><th>Автор</th><th>Текст</th></tr>
+{% for c in children %}<tr id="{{ c.code }}"><td>{{ c.code }}</td><td>{{ c.date }} {{ c.title }}</td><td>{{ c.author }}</td><td>{{ c.text }}</td></tr>{% endfor %}
+</table>
+{% else %}
+<h2>Текст</h2>
+<pre class="raw">{{ e.text }}</pre>
+{% endif %}
+
+<h2>Что извлечено</h2>
+<ul>{% for f in facts %}<li>{{ KIND_NAMES.get(f.kind, f.kind) }}: {{ f.text }}{% if f.quote %} <span class="small muted">«{{ f.quote }}»</span>{% endif %}{% if f.event_code != e.code %} <span class="small">({{ f.event_code }})</span>{% endif %}</li>
+{% else %}<li class="muted">Нет фактов.</li>{% endfor %}</ul>
+{% endblock %}

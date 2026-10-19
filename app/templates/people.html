@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Люди</h1>
+<form class="inline"><input name="q" value="{{ q }}" placeholder="Поиск по имени или организации"><button>Найти</button> <a href="/people">сбросить</a></form>
+<table><tr><th>Человек</th><th>Где работает и работал</th></tr>
+{% for p in rows %}
+<tr><td><a href="/person/{{ p.id }}"><b>{{ p.name }}</b></a>{% if p.aliases %}<br><span class="small muted">{{ p.aliases|join(", ") }}</span>{% endif %}</td>
+<td>{% for j in p.jobs %}{{ j.role or "роль не названа" }} — <a href="/org/{{ j.org_id }}">{{ j.org.name }}</a> {% if j.current %}<span class="tag ok">сейчас</span>{% else %}<span class="tag dup">раньше</span>{% endif %} <a class="src" href="{{ code_href(j.event_code) }}">{{ j.event_code }}</a><br>{% else %}<span class="tag unc">{{ p.note or "организация не названа" }}</span>{% endfor %}</td></tr>
+{% else %}<tr><td colspan="2" class="muted">Нет</td></tr>{% endfor %}
+</table>
+{% endblock %}

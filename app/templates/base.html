@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Северный мост · CRM{% endblock %}</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#e4e2dc;--accent:#1f5f8b;--warn:#b5651d;--bad:#b23a3a;--ok:#2f7d4f;--chip:#eef2f6}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecebe7;--muted:#a3a19b;--line:#33322f;--accent:#7fb3d9;--warn:#e0a060;--bad:#e07a7a;--ok:#7cc79a;--chip:#26303a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.nav{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:700;color:var(--ink)}
+.nav a.on{font-weight:600;text-decoration:underline}
+main{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:24px 0 8px}h3{font-size:15px;margin:16px 0 6px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:2fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:860px){.g2,.g3,.g4{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat{font-size:28px;font-weight:700}.stat a{color:inherit}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);background:var(--bg)}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--chip);margin:1px 2px 1px 0;white-space:nowrap}
+.tag.stale{background:#f6e3d3;color:#8a4410}.tag.risk{background:#f6d9d9;color:#8a2020}.tag.ok{background:#dbefe2;color:#1d5c37}
+.tag.unc{background:#f3ecd0;color:#6d5a10}.tag.dup{background:#e5e5e5;color:#555}.tag.conf{background:#e8def6;color:#4d2d7a}
+@media (prefers-color-scheme:dark){.tag.stale{background:#4a3220;color:#f2c49b}.tag.risk{background:#4a2424;color:#f2a9a9}.tag.ok{background:#1f3d2b;color:#a4dcb8}.tag.unc{background:#433a1a;color:#e6d38f}.tag.dup{background:#333;color:#bbb}.tag.conf{background:#352a47;color:#cdb8ef}}
+a.src{font-size:12px;font-weight:600}
+form.inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 14px}
+input,select,textarea,button{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+textarea{width:100%;min-height:90px}
+button,.btn{background:var(--accent);color:#fff;border:0;cursor:pointer;border-radius:8px;padding:8px 14px;display:inline-block}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.wiki h2,.wiki h3{margin-top:14px}.wiki ul{margin:4px 0 8px 18px;padding:0}
+.changes{background:var(--chip);border-left:3px solid var(--accent);padding:8px 12px;border-radius:6px;margin-bottom:10px}
+.strike{text-decoration:line-through;color:var(--muted)}
+.feed li{margin-bottom:8px}
+pre.raw{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+.bar{height:22px;background:var(--accent);border-radius:4px;color:#fff;font-size:12px;padding:2px 6px;min-width:24px}
+.answer{font-size:16px}
+</style>
+</head>
+<body>
+<header><div class="nav">
+<a class="brand" href="/">Северный мост · CRM</a>
+<a href="/orgs">Организации</a><a href="/people">Люди</a><a href="/projects">Сделки</a>
+<a href="/funnel">Воронка</a><a href="/events">События</a><a href="/ask">Спросить</a>
+</div></header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

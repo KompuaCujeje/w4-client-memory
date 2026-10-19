@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ p.name }}</h1>
+<p class="muted">{% if p.aliases %}также: {{ p.aliases|join(", ") }} · {% endif %}первое упоминание <a class="src" href="{{ code_href(p.first_event) }}">{{ p.first_event }}</a></p>
+<h2>Места работы</h2>
+<ul>{% for j in p.jobs %}<li>{{ j.role or "роль не названа" }} — <a href="/org/{{ j.org_id }}">{{ j.org.name }}</a>, с {{ j.since }}{% if j.until %} до {{ j.until }}{% endif %} {% if j.current %}<span class="tag ok">сейчас</span>{% else %}<span class="tag dup">раньше</span>{% endif %} <a class="src" href="{{ code_href(j.event_code) }}">{{ j.event_code }}</a></li>
+{% else %}<li><span class="tag unc">{{ p.note or "организация не названа" }}</span></li>{% endfor %}</ul>
+<h2>Факты</h2>
+<ul>{% for f in facts %}<li>{{ KIND_NAMES.get(f.kind, f.kind) }}: {{ f.text }} <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }} · {{ f.channel }}</span>{% if f.confidential %} <span class="tag conf">конфиденциально</span>{% endif %}</li>
+{% else %}<li class="muted">Нет.</li>{% endfor %}</ul>
+{% endblock %}

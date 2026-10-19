@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Справка к встрече: {{ o.name }}</h1>
+<p class="muted">На {{ as_of }} · <a href="/org/{{ o.id }}">карточка</a></p>
+<div class="card wiki">{{ text|md|safe }}</div>
+{% endblock %}

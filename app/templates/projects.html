@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Сделки</h1>
+<form class="inline">
+  <input name="q" value="{{ q }}" placeholder="Поиск по клиенту или продукту">
+  <select name="stage"><option value="">все этапы</option>{% for st in STAGES + [CLOSED] %}<option {{ 'selected' if st==stage }}>{{ st }}</option>{% endfor %}</select>
+  <select name="manager"><option value="">все менеджеры</option>{% for m in MANAGERS %}<option {{ 'selected' if m==manager }}>{{ m }}</option>{% endfor %}</select>
+  <select name="flag"><option value="">все</option>
+    <option value="open" {{ 'selected' if flag=='open' }}>открытые</option>
+    <option value="stale" {{ 'selected' if flag=='stale' }}>протухшие</option>
+    <option value="risk" {{ 'selected' if flag=='risk' }}>в риске</option>
+    <option value="dup" {{ 'selected' if flag=='dup' }}>дубли</option></select>
+  <button>Найти</button> <a href="/projects">сбросить</a>
+</form>
+<table><tr><th>Клиент</th><th>Продукт</th><th>Менеджер</th><th>Этап</th><th>Последний живой контакт</th><th>Источник</th></tr>
+{% for d in rows %}{% set p = d.project %}
+<tr><td><a href="/org/{{ p.org_id }}">{{ p.org.name }}</a></td><td>{{ p.product or p.title }}</td><td>{{ p.manager or "—" }}</td>
+<td>{{ p.stage }}{% if p.paused %} <span class="tag unc">пауза</span>{% endif %}{% if p.duplicate_of %} <span class="tag dup">дубль {{ p.duplicate_of }}</span>{% endif %}</td>
+<td>{{ d.last_contact or "нет" }} {% if d.last_contact_event %}<a class="src" href="{{ code_href(d.last_contact_event) }}">{{ d.last_contact_event }}</a>{% endif %}
+  {% if d.stale %}<span class="tag stale">{{ d.days }} дн.</span>{% endif %}{% for r in d.risks %}<span class="tag risk">риск</span>{% endfor %}</td>
+<td><a class="src" href="{{ code_href(p.source) }}">{{ p.source }}</a></td></tr>
+{% else %}<tr><td colspan="6" class="muted">Ничего не найдено</td></tr>{% endfor %}
+</table>
+<p class="small muted">Найдено: {{ rows|length }} · дата вопроса {{ as_of }}</p>
+{% endblock %}

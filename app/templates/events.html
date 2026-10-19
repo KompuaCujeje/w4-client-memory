@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>События</h1>
+<form class="inline">
+  <input name="q" value="{{ q }}" placeholder="Поиск по тексту">
+  <select name="channel"><option value="">все каналы</option>{% for c in channels %}<option {{ 'selected' if c==channel }}>{{ c }}</option>{% endfor %}</select>
+  <button>Найти</button> <a href="/events">сбросить</a> · <a href="/">загрузить новое</a>
+</form>
+<table id="ev"><tr><th>Код</th><th>Дата</th><th>Канал</th><th>Что произошло</th><th>Статус</th></tr>
+{% for e in rows %}
+<tr><td><a href="{{ code_href(e.code) }}">{{ e.code }}</a></td><td>{{ e.date or "—" }}</td><td>{{ e.channel }}{% if e.author %}<br><span class="small muted">{{ e.author }}</span>{% endif %}</td>
+<td class="small">{{ e.summary }}{% if e.live_contact %} <span class="tag ok">живой контакт</span>{% endif %}{% if e.same_meeting_as %} <span class="tag dup">та же встреча, что {{ e.same_meeting_as }}</span>{% endif %}</td>
+<td>{% if e.status == "done" %}<span class="tag ok">разобрано{% if e.seconds %} за {{ e.seconds|round|int }} с{% endif %}</span>{% elif e.status == "error" %}<span class="tag risk" title="{{ e.error }}">ошибка</span>{% else %}<span class="tag unc">разбирается…</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">Событий нет</td></tr>{% endfor %}
+</table>
+<script>
+// пока что-то разбирается — обновляем страницу раз в 5 секунд
+if (document.querySelector('.tag.unc')) setTimeout(() => location.reload(), 5000);
+</script>
+{% endblock %}

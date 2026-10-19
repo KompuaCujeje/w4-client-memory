@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Организации</h1>
+<form class="inline">
+  <input name="q" value="{{ q }}" placeholder="Поиск по названию, другим именам, городу">
+  <select name="stage"><option value="">все этапы</option>{% for st in STAGES + [CLOSED] %}<option {{ 'selected' if st==stage }}>{{ st }}</option>{% endfor %}</select>
+  <select name="manager"><option value="">все менеджеры</option>{% for m in MANAGERS %}<option {{ 'selected' if m==manager }}>{{ m }}</option>{% endfor %}</select>
+  <button>Найти</button> <a href="/orgs">сбросить</a>
+</form>
+<table><tr><th>Организация</th><th>Сделки</th><th>Последний живой контакт</th></tr>
+{% for o, projs, states, last in rows %}
+<tr><td><a href="/org/{{ o.id }}"><b>{{ o.name }}</b></a>{% if o.aliases %}<br><span class="small muted">{{ o.aliases|join(", ") }}</span>{% endif %}</td>
+<td>{% for d in states %}<span class="tag">{{ d.project.product or d.project.title }}: {{ d.project.stage }}{% if d.project.manager %} · {{ d.project.manager }}{% endif %}</span>{% if d.stale %}<span class="tag stale">протухла</span>{% endif %}{% if d.risks %}<span class="tag risk">риск</span>{% endif %}<br>{% endfor %}</td>
+<td>{{ last or "—" }}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">Ничего не найдено</td></tr>{% endfor %}
+</table>
+<p class="small muted">Найдено: {{ rows|length }}</p>
+{% endblock %}

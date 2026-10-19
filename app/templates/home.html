@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Сводка</h1>
+<p class="muted">На дату последнего загруженного события: <b>{{ as_of }}</b>{% if busy %} · <span class="tag unc">идёт разбор событий…</span>{% endif %}</p>
+
+<div class="grid g4">
+  <div class="card"><div class="muted small">Организации</div><div class="stat"><a href="/orgs">{{ n_orgs }}</a></div></div>
+  <div class="card"><div class="muted small">Люди</div><div class="stat"><a href="/people">{{ n_people }}</a></div></div>
+  <div class="card"><div class="muted small">Открытые сделки</div><div class="stat"><a href="/projects?flag=open">{{ n_open }}</a></div><div class="small muted">из {{ n_projects }} без дублей</div></div>
+  <div class="card"><div class="muted small">Протухли (&gt;42 дн. без контакта)</div><div class="stat"><a href="/projects?flag=stale">{{ stale|length }}</a></div><div class="small muted">в риске: <a href="/projects?flag=risk">{{ risky|length }}</a></div></div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+<div>
+  <h2>Загрузить событие</h2>
+  <form class="card" action="/upload" method="post" enctype="multipart/form-data">
+    <p class="small muted" style="margin-top:0">Файлы: расшифровка, письмо, записка, новость (.md/.txt), экспорт Telegram, голосовая (.mp3/.ogg), старая таблица (.xlsx). Можно несколько сразу — разберутся по порядку имён.</p>
+    <input type="file" name="files" multiple>
+    <p class="small muted">или вставьте текст:</p>
+    <textarea name="text" placeholder="Текст события…"></textarea>
+    <div class="inline" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <select name="channel"><option value="">канал — определить сам</option>{% for c in ["расшифровка встречи","письмо","переписка","голосовая","записка","новость"] %}<option>{{ c }}</option>{% endfor %}</select>
+      <input type="date" name="date" title="дата события, если её нет в файле">
+      <button>Загрузить</button>
+    </div>
+  </form>
+
+  <h2>Спросить базу</h2>
+  <form class="inline" action="/ask"><input name="q" style="flex:1;min-width:260px" placeholder="Например: какие сделки зависли и почему?"><button>Спросить</button></form>
+
+  <h2>Протухшие и в риске</h2>
+  {% if stale or risky %}
+  <table><tr><th>Клиент</th><th>Сделка</th><th>Этап</th><th>Последний контакт</th><th>Почему</th></tr>
+  {% for d in (stale + risky)|unique(attribute="project.id") %}
+  <tr><td><a href="/org/{{ d.project.org_id }}">{{ d.project.org.name }}</a></td><td>{{ d.project.product or d.project.title }} <span class="muted small">{{ d.project.manager }}</span></td><td>{{ d.project.stage }}</td>
+  <td>{{ d.last_contact or "нет" }} {% if d.last_contact_event %}<a class="src" href="{{ code_href(d.last_contact_event) }}">{{ d.last_contact_event }}</a>{% endif %}</td>
+  <td>{% if d.stale %}<span class="tag stale">протухла: {{ d.days }} дн.</span>{% endif %}{% for r in d.risks %}<span class="tag risk">риск</span> {{ r.text }} <a class="src" href="{{ code_href(r.event_code) }}">{{ r.event_code }}</a> {% endfor %}</td></tr>
+  {% endfor %}</table>
+  <p class="small muted">Правило: открытая сделка (знакомство — согласование) протухла, если живого контакта с клиентом не было больше 42 дней на дату последнего события.</p>
+  {% else %}<p class="muted">Нет.</p>{% endif %}
+</div>
+<div>
+  <h2>Противоречия источников</h2>
+  {% for c in conflicts %}
+  <div class="card" style="margin-bottom:8px"><b>{{ c.subject }}</b><br>
+  «{{ c.version_a }}» <a class="src" href="{{ code_href(c.event_a) }}">{{ c.event_a }}</a><br>
+  «{{ c.version_b }}» <a class="src" href="{{ code_href(c.event_b) }}">{{ c.event_b }}</a><br>
+  <span class="small muted">{{ c.verdict }}</span> {% if c.org_id %}· <a href="/org/{{ c.org_id }}">карточка</a>{% endif %}</div>
+  {% else %}<p class="muted">Нет.</p>{% endfor %}
+
+  <h2>Последние события</h2>
+  <ul class="feed" style="padding-left:18px">
+  {% for e in events %}<li><a href="{{ code_href(e.code) }}">{{ e.code }}</a> <span class="muted small">{{ e.date }} · {{ e.channel }}</span>
+    {% if e.status != "done" %}<span class="tag {{ 'risk' if e.status=='error' else 'unc' }}">{{ 'ошибка' if e.status=='error' else 'разбирается' }}</span>{% endif %}<br><span class="small">{{ e.summary }}</span></li>
+  {% else %}<li class="muted">Событий пока нет — загрузите первое.</li>{% endfor %}
+  </ul>
+  <p><a href="/funnel">Воронка и работа менеджеров →</a></p>
+</div>
+</div>
+{% endblock %}

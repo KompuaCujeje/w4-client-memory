@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Проверка</h1>
+<table>{% for k, v in checks.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}</table>
+{% endblock %}
