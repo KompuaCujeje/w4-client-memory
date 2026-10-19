@@ -57,3 +57,12 @@ LLM_API_KEY=... TELEGRAM_BOT_TOKEN=... uvicorn app.main:app --reload
 `LLM_MODEL_FAST` (`gpt-4.1-mini`), `STT_MODEL` (`whisper-1`), `PUBLIC_URL`.
 
 Секретов в репозитории нет: ключи живут только в настройках Render.
+
+## Скрипты загрузки (`scripts/`)
+
+- `scripts/upload.sh путь ...` — догрузить новые события без сброса (stage2, sources) и дождаться разбора.
+- `scripts/reload.sh [доп. папки]` — полная перезагрузка: сброс базы + stage1 (+ папки) заново. Платно (≈45 ₽ за stage1), нужен `RESET_CODE`.
+- `scripts/wait.sh` — дождаться конца разбора и показать события с ошибкой.
+
+Данные кейса берутся из `DATA` (по умолчанию `../hackathon-lab/tasks/w4`). Тексты событий в этот репозиторий не кладём.
+Не пушить в `main`, пока идёт разбор: Render перезапустится посреди очереди.
