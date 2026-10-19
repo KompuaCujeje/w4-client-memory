@@ -382,7 +382,7 @@ def _seen(names, text: str) -> list[str]:
     out = []
     for n in names or []:
         n = (n or "").strip()
-        if len(n) > 2 and n.lower().replace("ё", "е") in low:
+        if len(n) > 2 and n[0].isupper() and n.lower().replace("ё", "е") in low:  # «собственник» — роль, не имя
             out.append(n)
     return out
 
@@ -638,6 +638,12 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             s.add(Link(a_type=a_type, a_id=a_id, kind=lk["kind"], b_type=b_type, b_id=b_id, event_code=ev.code, quote=lk.get("quote") or ""))
 
     ev.org_ids = touched
+    # голосовая/записка в день встречи с той же организацией — та же встреча, не новый контакт
+    if ev.channel in ("голосовая", "записка") and not ev.same_meeting_as and touched:
+        for other in s.scalars(select(Event).where(Event.date == ev.date, Event.parent == "", Event.id != ev.id)):
+            if other.depth > ev.depth and set(other.org_ids or []) & set(touched) and other.live_contact:
+                ev.same_meeting_as, ev.live_contact = other.code, False
+                break
     s.commit()
     return touched
 
