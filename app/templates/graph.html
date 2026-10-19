@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Граф связей · CRM{% endblock %}
+{% block body %}
+<h1>Граф связей</h1>
+<p class="muted">Организации, люди, проекты, темы, продукты и новости. У каждой связи — событие-источник (в таблице ниже).
+{% if all %}<a href="/graph">Только клиенты из событий</a>{% else %}<a href="/graph?all=1">Показать и лиды старой таблицы</a>{% endif %}</p>
+<p class="small">
+<span class="tag" style="background:#1f5f8b;color:#fff">организация</span>
+<span class="tag" style="background:#2f7d4f;color:#fff">человек</span>
+<span class="tag" style="background:#8a5a1f;color:#fff">проект</span>
+<span class="tag" style="background:#6d4fa0;color:#fff">тема</span>
+<span class="tag" style="background:#9a3a5a;color:#fff">продукт</span>
+<span class="tag" style="background:#666;color:#fff">новость</span>
+</p>
+<div id="net" class="card" style="height:620px;padding:0"></div>
+
+<h2>Неочевидные связи</h2>
+{% for h in hidden %}
+<div class="card" style="margin-bottom:8px">🔗 {{ h.text }} {% for c in h.events %}<a class="src" href="{{ code_href(c) }}">{{ c }}</a> {% endfor %}</div>
+{% else %}<p class="muted">Пока не найдено.</p>{% endfor %}
+
+<h2>Все связи ({{ edges|length }})</h2>
+<table><tr><th>Откуда</th><th>Связь</th><th>Куда</th><th>Источник</th></tr>
+{% for e in edges %}{% set a = nodes[e.from] %}{% set b = nodes[e.to] %}
+<tr><td>{% if a.href %}<a href="{{ a.href }}">{{ a.label }}</a>{% else %}{{ a.label }}{% endif %}</td><td><b>{{ e.kind }}</b></td>
+<td>{% if b.href %}<a href="{{ b.href }}">{{ b.label }}</a>{% else %}{{ b.label }}{% endif %}</td>
+<td>{% for c in e.events %}<a class="src" href="{{ code_href(c) }}">{{ c }}</a> {% endfor %}{% if e.quote %}<br><span class="small muted">«{{ e.quote }}»</span>{% endif %}</td></tr>
+{% endfor %}</table>
+
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const data = {{ data|safe }};
+const colors = {org:"#1f5f8b", person:"#2f7d4f", project:"#8a5a1f", topic:"#6d4fa0", product:"#9a3a5a", news:"#666", other:"#999"};
+const shapes = {org:"box", person:"ellipse", project:"diamond", topic:"hexagon", product:"triangle", news:"square", other:"dot"};
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const nodes = new vis.DataSet(data.nodes.map(n => ({id:n.id, label:n.label, href:n.href, shape:shapes[n.group]||"dot",
+  color:{background:colors[n.group]||"#999", border:colors[n.group]||"#999"}, font:{color: n.group==="org"||n.group==="person" ? "#fff" : (dark?"#eee":"#222"), size:14}, size:12})));
+const edges = new vis.DataSet(data.edges.map((e,i) => ({id:i, from:e.from, to:e.to, label:e.kind, arrows:"to",
+  title: e.kind + " — " + e.events.join(", "), font:{size:10, color: dark?"#bbb":"#555", strokeWidth:0}, color:{color: dark?"#666":"#aaa"},
+  width: (e.kind==="знаком с"||e.kind==="учился с") ? 3 : 1, dashes: e.kind==="работал в"})));
+const net = new vis.Network(document.getElementById("net"), {nodes, edges},
+  {physics:{solver:"forceAtlas2Based", stabilization:{iterations:200}}, interaction:{hover:true}});
+net.on("doubleClick", p => { if (p.nodes.length) { const n = nodes.get(p.nodes[0]); if (n.href) location.href = n.href; } });
+</script>
+<p class="small muted">Двойной клик по узлу открывает карточку. Наведите на связь, чтобы увидеть источник.</p>
+{% endblock %}

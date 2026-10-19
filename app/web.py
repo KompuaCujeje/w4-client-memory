@@ -155,6 +155,7 @@ def org_card(request: Request, org_id: int, v: int | None = None):
         ctx = dict(
             o=o,
             links=org_links(s, o),
+            history=[(KIND_NAMES[k], [f for f in facts if f.kind == k]) for k in ("budget", "deadline", "scope", "decision") if sum(1 for f in facts if f.kind == k) > 1],
             wiki=wiki,
             versions=versions,
             jobs=list(s.scalars(select(Job).where(Job.org_id == org_id))),
@@ -284,7 +285,7 @@ def events(request: Request, q: str = "", channel: str = ""):
 
 
 @router.get("/e/{code}", response_class=HTMLResponse)
-def event_page(request: Request, code: str):
+def event_page(request: Request, code: str, hl: str = ""):
     with session() as s:
         e = s.scalar(select(Event).where(Event.code == code))
         if e is None:
@@ -293,7 +294,11 @@ def event_page(request: Request, code: str):
         children = list(s.scalars(select(Event).where(Event.parent == e.code).order_by(Event.id)))
         facts = list(s.scalars(select(Fact).where(Fact.event_code.in_([e.code] + [c.code for c in children]))))
         orgs_ = [s.get(Org, i) for i in (e.org_ids or (parent.org_ids if parent else []) or [])]
-        return render(request, "event.html", e=e, parent=parent, children=children, facts=facts, orgs=[o for o in orgs_ if o])
+        text_html = html.escape(e.text or "")
+        quotes = [hl] if hl else [f.quote for f in facts if f.quote]
+        for q in sorted({q.strip() for q in quotes if q and len(q.strip()) > 6}, key=len, reverse=True):
+            text_html = text_html.replace(html.escape(q), f'<mark id="hl">{html.escape(q)}</mark>' if q == hl else f"<mark>{html.escape(q)}</mark>")
+        return render(request, "event.html", e=e, parent=parent, children=children, facts=facts, orgs=[o for o in orgs_ if o], text_html=text_html, hl=hl)
 
 
 @router.get("/ask", response_class=HTMLResponse)
@@ -363,3 +368,108 @@ def reset(code: str = Form("")):
         return HTMLResponse("Сброс выключен или код неверный", 403)
     db.reset_db()
     return RedirectResponse("/", status_code=303)
+
+
+# ---------- граф (Г1, Г2) ----------
+
+
+@router.get("/graph", response_class=HTMLResponse)
+def graph_page(request: Request, all: int = 0):
+    import json
+
+    from . import graph as G
+
+    with session() as s:
+        g = G.build(s, include_table=bool(all))
+        hidden = G.hidden_links(s, g)
+        edges = sorted(g.edges, key=lambda e: (e["kind"], g.nodes[e["from"]]["label"]))
+        data = {"nodes": list(g.nodes.values()), "edges": g.edges}
+        return render(request, "graph.html", data=json.dumps(data, ensure_ascii=False), edges=edges, nodes=g.nodes, hidden=hidden, all=all)
+
+
+# ---------- экран акционера (Е4) ----------
+
+
+@router.get("/owner", response_class=HTMLResponse)
+def owner(request: Request):
+    with session() as s:
+        today = analytics.as_of(s)
+        deals = analytics.all_deals(s)
+        open_ = [d for d in deals if d.is_open]
+        promises = [f for f in s.scalars(select(Fact).where(Fact.kind == "promise", Fact.done.is_(False))) if not f.superseded_by]
+        waiting = [f for f in s.scalars(select(Fact).where(Fact.kind == "waiting", Fact.done.is_(False))) if not f.superseded_by]
+        by_stage = {st: [d for d in open_ if d.project.stage == st] for st in analytics.OPEN_STAGES}
+        mgr = {m: [d for d in open_ if d.project.manager == m] for m in MANAGERS}
+        ctx = dict(
+            as_of=today,
+            open_=open_,
+            stale=[d for d in open_ if d.stale],
+            risky=[d for d in open_ if d.risks],
+            promises=promises,
+            waiting=waiting,
+            by_stage=by_stage,
+            mgr=mgr,
+            conflicts=list(s.scalars(select(Conflict))),
+            funnel=analytics.funnel(s),
+            orgs={o.id: o for o in s.scalars(select(Org))},
+            mgrs=analytics.managers(s),
+            worse=analytics.worse_manager(analytics.managers(s)),
+            rule=analytics.RULE_WORSE,
+        )
+        return render(request, "owner.html", **ctx)
+
+
+@router.get("/promises", response_class=HTMLResponse)
+def promises_page(request: Request, kind: str = "promise", manager: str = ""):
+    with session() as s:
+        rows = []
+        for f in s.scalars(select(Fact).where(Fact.kind == kind).order_by(Fact.date)):
+            if f.superseded_by:
+                continue
+            o = s.get(Org, f.org_id) if f.org_id else None
+            proj = s.get(Project, f.project_id) if f.project_id else None
+            m = proj.manager if proj else ""
+            if manager and m != manager:
+                continue
+            rows.append((f, o, m))
+        title = {"promise": "Что мы обещали", "waiting": "Что ждём от клиентов", "request": "О чём просили клиенты"}.get(kind, kind)
+        return render(request, "promises.html", rows=rows, title=title, kind=kind, manager=manager)
+
+
+# ---------- выгрузка для проверки агентом ----------
+
+
+@router.get("/api/dump")
+def dump():
+    with session() as s:
+        return JSONResponse(
+            {
+                "as_of": str(analytics.as_of(s)),
+                "events": [
+                    {"code": e.code, "date": str(e.date), "channel": e.channel, "status": e.status, "error": e.error, "summary": e.summary,
+                     "orgs": e.org_ids, "live": e.live_contact, "same_meeting": e.same_meeting_as, "internal": e.internal}
+                    for e in s.scalars(select(Event).where(Event.parent == "").order_by(Event.id))
+                ],
+                "orgs": [{"id": o.id, "name": o.name, "aliases": o.aliases, "city": o.city} for o in s.scalars(select(Org))],
+                "people": [
+                    {"id": p.id, "name": p.name, "aliases": p.aliases, "note": p.note,
+                     "jobs": [{"org": j.org.name, "role": j.role, "current": j.current, "since": str(j.since), "until": str(j.until), "ev": j.event_code} for j in p.jobs]}
+                    for p in s.scalars(select(Person))
+                ],
+                "projects": [
+                    {"id": p.id, "org": p.org.name, "product": p.product, "title": p.title, "manager": p.manager, "stage": p.stage,
+                     "history": p.stage_history, "paused": p.paused, "close": p.close_reason, "dup": p.duplicate_of, "src": p.source}
+                    for p in s.scalars(select(Project))
+                ],
+                "facts": [
+                    {"org": f.org_id, "person": f.person_id, "project": f.project_id, "kind": f.kind, "text": f.text, "value": f.value, "ev": f.event_code,
+                     "ch": f.channel, "ok": f.confirmed, "conf": f.confidential, "done": f.done_event, "repl": f.superseded_by}
+                    for f in s.scalars(select(Fact).where(~Fact.event_code.like("E00#%")))
+                ],
+                "conflicts": [
+                    {"org": c.org_id, "subject": c.subject, "a": c.version_a, "ea": c.event_a, "b": c.version_b, "eb": c.event_b, "verdict": c.verdict}
+                    for c in s.scalars(select(Conflict))
+                ],
+                "links": [{"a": f"{lk.a_type}:{lk.a_id}", "kind": lk.kind, "b": f"{lk.b_type}:{lk.b_id}", "ev": lk.event_code} for lk in s.scalars(select(db.Link))],
+            }
+        )

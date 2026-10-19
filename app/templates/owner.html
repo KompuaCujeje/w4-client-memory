@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Экран акционера · CRM{% endblock %}
+{% block body %}
+<h1>Экран акционера</h1>
+<p class="muted">На {{ as_of }} (дата последнего загруженного события). Каждая цифра кликается: список → карточка → фраза со встречи.</p>
+
+<div class="grid g4">
+  <div class="card"><div class="muted small">Открытые сделки</div><div class="stat"><a href="/projects?flag=open">{{ open_|length }}</a></div></div>
+  <div class="card"><div class="muted small">Протухли (&gt;42 дн.)</div><div class="stat"><a href="/projects?flag=stale">{{ stale|length }}</a></div></div>
+  <div class="card"><div class="muted small">В риске</div><div class="stat"><a href="/projects?flag=risk">{{ risky|length }}</a></div></div>
+  <div class="card"><div class="muted small">Наши невыполненные обещания</div><div class="stat"><a href="/promises?kind=promise">{{ promises|length }}</a></div>
+    <div class="small muted">ждём от клиентов: <a href="/promises?kind=waiting">{{ waiting|length }}</a></div></div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+<div>
+<h2>Где сейчас открытые сделки</h2>
+<table><tr><th>Этап</th><th>Сделок</th><th>Клиенты</th></tr>
+{% for st, ds in by_stage.items() %}
+<tr><td><a href="/projects?stage={{ st }}&flag=open">{{ st }}</a></td><td><a href="/projects?stage={{ st }}&flag=open">{{ ds|length }}</a></td>
+<td class="small">{% for d in ds %}<a href="/org/{{ d.project.org_id }}">{{ d.project.org.name }}</a>{% if d.stale %} <span class="tag stale">протухла</span>{% endif %}{% if d.risks %} <span class="tag risk">риск</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+{% endfor %}</table>
+
+<h2>Наши невыполненные обещания</h2>
+<table><tr><th>Клиент</th><th>Обещание</th><th>Фраза</th></tr>
+{% for f in promises %}<tr><td>{% if f.org_id and orgs.get(f.org_id) %}<a href="/org/{{ f.org_id }}">{{ orgs[f.org_id].name }}</a>{% endif %}</td><td>{{ f.text }}{% if f.value %} — <b>{{ f.value }}</b>{% endif %}</td>
+<td class="small">{% if f.quote %}<a href="{{ code_href(f.event_code) }}?hl={{ f.quote|urlencode }}#hl">«{{ f.quote }}»</a>{% endif %} <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a></td></tr>
+{% else %}<tr><td colspan="3" class="muted">Нет.</td></tr>{% endfor %}</table>
+</div>
+<div>
+<h2>Менеджеры</h2>
+<table><tr><th></th><th>Открытых</th><th>Протухли</th><th>Пропущ. дат</th></tr>
+{% for r in mgrs %}<tr><td><b>{{ r.manager }}</b></td><td><a href="/projects?manager={{ r.manager }}&flag=open">{{ mgr[r.manager]|length }}</a></td>
+<td><a href="/projects?manager={{ r.manager }}&flag=stale">{{ r.stale }}</a></td><td><a href="/funnel">{{ r.missing }}</a></td></tr>{% endfor %}</table>
+<p class="small"><b>Хуже: {{ worse }}.</b> <span class="muted">{{ rule }}</span></p>
+
+<h2>Воронка (старая таблица)</h2>
+<table>{% for r in funnel %}<tr><td>{{ r.stage }}</td><td>{{ r.count }}</td><td>{% if r.conv is defined and r.conv is not none %}{{ r.conv }}%{% endif %}</td></tr>{% endfor %}</table>
+<p class="small"><a href="/funnel">По менеджерам →</a></p>
+
+<h2>Противоречия источников</h2>
+{% for c in conflicts %}<div class="small" style="margin-bottom:6px"><b>{{ c.subject }}</b>: «{{ c.version_a }}» <a class="src" href="{{ code_href(c.event_a) }}">{{ c.event_a }}</a> vs «{{ c.version_b }}» <a class="src" href="{{ code_href(c.event_b) }}">{{ c.event_b }}</a>{% if c.org_id %} · <a href="/org/{{ c.org_id }}">карточка</a>{% endif %}</div>
+{% else %}<p class="muted">Нет.</p>{% endfor %}
+</div></div>
+{% endblock %}

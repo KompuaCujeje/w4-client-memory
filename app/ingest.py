@@ -637,6 +637,12 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         if a_id and b_id and lk.get("kind"):
             s.add(Link(a_type=a_type, a_id=a_id, kind=lk["kind"], b_type=b_type, b_id=b_id, event_code=ev.code, quote=lk.get("quote") or ""))
 
+    for t in d.get("topics") or []:
+        o = refs.get(t.get("org_ref") or "")
+        topic = (t.get("topic") or "").strip().lower()
+        if o and o[0] == "org" and topic:
+            s.add(Link(a_type="org", a_id=str(o[1].id), kind="интересуется темой", b_type="text", b_id=f"тема: {topic}", event_code=ev.code, quote=t.get("quote") or ""))
+
     ev.org_ids = touched
     # голосовая/записка в день встречи с той же организацией — та же встреча, не новый контакт
     if ev.channel in ("голосовая", "записка") and not ev.same_meeting_as and touched:

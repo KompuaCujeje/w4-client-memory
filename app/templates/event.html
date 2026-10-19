@@ -15,11 +15,12 @@
 {% if children %}
 <h2>Сообщения / строки</h2>
 <table><tr><th>Код</th><th>Дата</th><th>Автор</th><th>Текст</th></tr>
-{% for c in children %}<tr id="{{ c.code }}"><td>{{ c.code }}</td><td>{{ c.date }} {{ c.title }}</td><td>{{ c.author }}</td><td>{{ c.text }}</td></tr>{% endfor %}
+{% for c in children %}<tr id="{{ c.code }}" {% if hl and hl in c.text %}style="background:#fff3b0;color:#222"{% endif %}><td>{{ c.code }}</td><td>{{ c.date }} {{ c.title }}</td><td>{{ c.author }}</td><td>{{ c.text }}</td></tr>{% endfor %}
 </table>
 {% else %}
 <h2>Текст</h2>
-<pre class="raw">{{ e.text }}</pre>
+<pre class="raw">{{ text_html|safe }}</pre>
+<p class="small muted">Жёлтым выделены фразы, из которых взяты факты.</p>
 {% endif %}
 
 <h2>Что извлечено</h2>

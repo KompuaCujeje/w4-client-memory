@@ -29,6 +29,14 @@
   {% if versions|length > 1 %}<p class="small">Версии: {% for w in versions %}<a href="/org/{{ o.id }}?v={{ w.version }}">v{{ w.version }} ({{ w.event_code }})</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
   {% else %}<p class="muted">Вики появится после первого разобранного события об этой организации.</p>{% endif %}
 
+  {% if history %}
+  <h2>История вводных</h2>
+  <table><tr><th>Что</th><th>Как менялось</th></tr>
+  {% for name, items in history %}<tr><td>{{ name }}</td><td>{% for f in items %}{% if not loop.first %} → {% endif %}<span class="{{ 'strike' if f.superseded_by }}">{{ f.value or f.text }}</span> <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }}{% if not f.confirmed %}, не подтв.{% endif %}</span>{% endfor %}
+    {% set cur = items|rejectattr("superseded_by")|list %}{% if cur %}<br><span class="small">сейчас: <b>{{ cur[-1].value or cur[-1].text }}</b></span>{% endif %}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+
   <h2>Факты по источникам</h2>
   <p class="small muted">Глубина источника: расшифровка → письмо → переписка → голосовая → записка. <span class="tag unc">не подтверждено</span> — факт только из голосовой или записки. Зачёркнутое — заменено более новым или более глубоким источником.</p>
   {% for k in order %}

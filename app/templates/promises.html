@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ title }}</h1>
+<form class="inline">
+  <select name="kind">{% for k, n in [("promise","Мы обещали"),("waiting","Ждём от клиента"),("request","Клиент просил")] %}<option value="{{ k }}" {{ 'selected' if k==kind }}>{{ n }}</option>{% endfor %}</select>
+  <select name="manager"><option value="">все менеджеры</option>{% for m in MANAGERS %}<option {{ 'selected' if m==manager }}>{{ m }}</option>{% endfor %}</select>
+  <button>Показать</button>
+</form>
+<table><tr><th>Клиент</th><th>Что</th><th>Статус</th><th>Фраза со встречи</th></tr>
+{% for f, o, m in rows %}
+<tr><td>{% if o %}<a href="/org/{{ o.id }}">{{ o.name }}</a>{% endif %}<br><span class="small muted">{{ m }}</span></td>
+<td>{{ f.text }}{% if f.value %} — <b>{{ f.value }}</b>{% endif %}<br><span class="small muted">{{ f.date }} · {{ f.channel }}</span></td>
+<td>{% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}">{{ f.done_event }}</a></span>{% else %}<span class="tag stale">открыто</span>{% endif %}</td>
+<td class="small">{% if f.quote %}<a href="{{ code_href(f.event_code) }}?hl={{ f.quote|urlencode }}#hl">«{{ f.quote }}»</a>{% endif %} <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a></td></tr>
+{% else %}<tr><td colspan="4" class="muted">Нет.</td></tr>{% endfor %}
+</table>
+{% endblock %}
