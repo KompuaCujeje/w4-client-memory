@@ -28,6 +28,7 @@ class DealState:
     stale: bool
     risks: list[Fact] = field(default_factory=list)
     is_open: bool = False
+    cleared: dict = field(default_factory=dict)  # fact_id риска → (этап, код события), которое его сняло
 
 
 def live_contacts(s: Session, org_id: int) -> list[Event]:
@@ -52,16 +53,18 @@ def deal_state(s: Session, p: Project, today: dt.date | None = None) -> DealStat
     is_open = p.stage in OPEN_STAGES and p.duplicate_of is None
     days = (today - last).days if last else None
     stale = bool(is_open and (days is None or days > STALE_DAYS))
-    risks = []
+    risks, cleared = [], {}
     if is_open:
         for f in s.scalars(select(Fact).where(Fact.org_id == p.org_id, Fact.kind == "risk", Fact.superseded_by == "")):
             if f.project_id not in (None, p.id):
                 continue
             # риск снимается, когда следующий живой контакт двигает сделку на следующий этап
-            moved = any(h.get("date", "") > str(f.date) for h in (p.stage_history or [])[1:])
-            if not moved:
+            moved = [h for h in (p.stage_history or [])[1:] if h.get("date", "") > str(f.date)]
+            if moved:
+                cleared[f.id] = (moved[0].get("stage", ""), moved[0].get("event", ""))
+            else:
                 risks.append(f)
-    return DealState(p, last, last_ev, days, stale, risks, is_open)
+    return DealState(p, last, last_ev, days, stale, risks, is_open, cleared)
 
 
 def all_deals(s: Session) -> list[DealState]:

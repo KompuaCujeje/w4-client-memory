@@ -4,7 +4,7 @@
 <p class="muted">{% if p.aliases %}также: {{ p.aliases|join(", ") }} · {% endif %}первое упоминание <a class="src" href="{{ code_href(p.first_event) }}">{{ p.first_event }}</a></p>
 <p><a class="btn ghost" href="/person/{{ p.id }}/research">Справка о человеке</a> <span class="small muted">10–30 секунд</span></p>
 <h2>Места работы</h2>
-<ul>{% for j in p.jobs %}<li>{{ j.role or "роль не названа" }} — <a href="/org/{{ j.org_id }}">{{ j.org.name }}</a>, с {{ j.since }}{% if j.until %} до {{ j.until }}{% endif %} {% if j.current %}<span class="tag ok">сейчас</span>{% else %}<span class="tag dup">раньше</span>{% endif %} <a class="src" href="{{ code_href(j.event_code) }}">{{ j.event_code }}</a></li>
+<ul>{% for j in p.jobs %}<li>{{ j.role or "роль не названа" }} — <a href="/org/{{ j.org_id }}">{{ j.org.name }}</a>, <span class="muted">в событиях с {{ j.since }}</span>{% if j.until %}, ушёл до {{ j.until }}{% endif %} {% if j.current %}<span class="tag ok">сейчас</span>{% else %}<span class="tag dup">раньше</span>{% endif %} <a class="src" href="{{ code_href(j.event_code) }}">{{ j.event_code }}</a></li>
 {% else %}<li><span class="tag unc">{{ p.note or "организация не названа" }}</span></li>{% endfor %}</ul>
 <h2>Связи</h2>
 <ul>{% for l in links %}<li>{% if l.ah %}<a href="{{ l.ah }}">{{ l.a }}</a>{% else %}{{ l.a }}{% endif %} — <b>{{ l.kind }}</b> — {% if l.bh %}<a href="{{ l.bh }}">{{ l.b }}</a>{% else %}{{ l.b }}{% endif %} <a class="src" href="{{ code_href(l.event) }}">{{ l.event }}</a>{% if l.quote %} <span class="small muted">«{{ l.quote }}»</span>{% endif %}</li>

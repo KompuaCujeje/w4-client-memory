@@ -54,7 +54,7 @@ def base_context(s: Session) -> str:
     lines.append("== ЛЮДИ ==")
     for p in s.scalars(select(Person).order_by(Person.id)):
         jobs = "; ".join(
-            f"{j.role or 'роль не названа'} в {j.org.name} ({'сейчас' if j.current else 'раньше'}, с {j.since}{', до ' + str(j.until) if j.until else ''}) [{j.event_code}]"
+            f"{j.role or 'роль не названа'} в {j.org.name} ({'сейчас' if j.current else 'раньше'}, впервые в наших событиях {j.since}{', до ' + str(j.until) if j.until else ''}) [{j.event_code}]"
             for j in p.jobs
         )
         al = f" (другие имена: {', '.join(p.aliases)})" if p.aliases else ""
@@ -182,7 +182,7 @@ def person_card_json(s: Session, p: Person) -> dict:
     from .names import person_key
 
     names = [p.name] + list(p.aliases or [])
-    jobs = [{"org": j.org.name, "role": j.role, "current": j.current, "since": str(j.since or ""), "until": str(j.until or ""), "event": j.event_code} for j in p.jobs]
+    jobs = [{"org": j.org.name, "role": j.role, "current": j.current, "first_seen_in_our_events": str(j.since or ""), "until": str(j.until or ""), "event": j.event_code} for j in p.jobs]
     facts = [
         {"kind": f.kind, "text": f.text, "value": f.value, "event": f.event_code, "date": str(f.date or ""), "channel": f.channel, "confidential": f.confidential}
         for f in s.scalars(select(Fact).where(Fact.person_id == p.id))

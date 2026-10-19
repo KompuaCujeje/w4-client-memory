@@ -482,6 +482,17 @@ def _seen(names, text: str) -> list[str]:
     return out
 
 
+def _org_alias_ok(n: str) -> bool:
+    """«Агрохолдинг этот», «Липецкий» из голосовой — не названия компании."""
+    words = [w for w in re.split(r"[\s\-]+", (n or "").strip("«»\"' ")) if w]
+    if not words:
+        return False
+    filler = {"этот", "эта", "это", "эти", "тот", "та", "наш", "наша", "наши", "их", "какой", "какая", "какой-то", "вот", "там", "тут", "типа", "короче"}
+    if any(w.lower() in filler for w in words):
+        return False
+    return not (len(words) == 1 and re.search(r"(ский|цкий|ской|ская|ское)$", words[0].lower()))
+
+
 def _add_aliases(obj, names) -> None:
     al = list(obj.aliases or [])
     for n in names or []:
@@ -563,7 +574,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
     if ev.date is None:
         ev.date = date
     ev.summary = (d.get("summary") or "")[:2000]
-    ev.internal = bool(d.get("internal"))
+    ev.internal = bool(d.get("internal")) and ev.channel == "переписка"  # голосовая/записка менеджера — не внутренний чат
     ev.same_meeting_as = (d.get("same_meeting_as") or "") or ""
     ev.live_contact = bool(d.get("live_contact")) and not ev.internal and not ev.same_meeting_as
     if ev.channel in ("новость", "таблица", "внешний источник"):
@@ -591,7 +602,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
                 org.city = o["city"]
             if not org.about and o.get("about"):
                 org.about = o["about"]
-        _add_aliases(org, [name] + _seen(o.get("aliases"), source_text))
+        _add_aliases(org, [n for n in [name] + _seen(o.get("aliases"), source_text) if _org_alias_ok(n)])
         refs[o.get("ref") or f"o{org.id}"] = ("org", org)
         touch(org.id)
 
@@ -820,7 +831,7 @@ def org_card_json(s: Session, org_id: int) -> dict:
         return {}
     people = []
     for j in s.scalars(select(Job).where(Job.org_id == org_id)):
-        people.append({"name": j.person.name, "role": j.role, "current": j.current, "since": str(j.since or ""), "until": str(j.until or ""), "event": j.event_code})
+        people.append({"name": j.person.name, "role": j.role, "current": j.current, "first_seen_in_our_events": str(j.since or ""), "until": str(j.until or ""), "event": j.event_code})
     projects = [
         {
             "id": p.id,
