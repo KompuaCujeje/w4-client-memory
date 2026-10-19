@@ -476,3 +476,10 @@ def dump():
                 "links": [{"a": f"{lk.a_type}:{lk.a_id}", "kind": lk.kind, "b": f"{lk.b_type}:{lk.b_id}", "ev": lk.event_code} for lk in s.scalars(select(db.Link))],
             }
         )
+
+
+@router.get("/api/version")
+def version():
+    import os
+
+    return {"commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7]}
