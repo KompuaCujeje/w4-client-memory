@@ -55,7 +55,10 @@ def linkify(text: str) -> str:
 def md(text: str) -> str:
     """Минимальный markdown: заголовки, списки, жирный, ссылки на события."""
     out, in_list = [], False
-    for raw in (text or "").splitlines():
+    text = re.sub(r"^```\w*\s*$", "", text or "", flags=re.M)
+    for raw in text.splitlines():
+        if raw.strip() == "---":
+            continue
         line = raw.rstrip()
         if not line.strip():
             if in_list:

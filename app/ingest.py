@@ -740,7 +740,6 @@ def org_card_json(s: Session, org_id: int) -> dict:
     ]
     facts = [
         {
-            "fact_id": f.id,
             "kind": f.kind,
             "text": f.text,
             "value": f.value,

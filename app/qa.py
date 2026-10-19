@@ -60,6 +60,18 @@ def base_context(s: Session) -> str:
         al = f" (другие имена: {', '.join(p.aliases)})" if p.aliases else ""
         lines.append(f"- {p.name}{al}: {jobs or p.note or 'организация не названа'}")
     lines.append("")
+    lines.append("== СВЯЗИ (граф) ==")
+    from . import graph as G
+
+    g = G.build(s, include_table=True)
+    for e in g.edges:
+        if e["kind"] in ("знаком с", "учился с", "работал в", "новость касается") or e["kind"] not in (
+            "работает в", "проект", "предложен продукт", "интересуется темой", "участвует в проекте"
+        ):
+            lines.append(f"- {g.nodes[e['from']]['label']} — {e['kind']} — {g.nodes[e['to']]['label']} [{', '.join(e['events'])}]")
+    for h in G.hidden_links(s, g):
+        lines.append(f"- НЕОЧЕВИДНАЯ СВЯЗЬ: {h['text']} [{', '.join(h['events'])}]")
+    lines.append("")
     lines.append("== СОБЫТИЯ ==")
     for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date, Event.id)):
         lines.append(f"[{e.code}] {e.date} {e.channel} {e.author}: {e.summary}" + (" (живой контакт)" if e.live_contact else ""))
