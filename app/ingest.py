@@ -342,7 +342,7 @@ def registry_snapshot(s: Session) -> str:
             "done": f.done,
         }
         for f in s.scalars(
-            select(Fact).where(Fact.kind.in_(["budget", "deadline", "scope", "decision", "promise", "request", "risk"]))
+            select(Fact).where(Fact.kind.in_(["budget", "deadline", "scope", "decision", "promise", "request", "waiting", "risk"]))
         )
         if not f.superseded_by
     ]
