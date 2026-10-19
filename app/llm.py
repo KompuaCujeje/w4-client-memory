@@ -79,7 +79,7 @@ def stt_hint() -> str:
     from .db import Org, Person, session
 
     with session() as s:
-        names = [o.name for o in s.scalars(select(Org))] + [p.name for p in s.scalars(select(Person))]
+        names = [p.name for p in s.scalars(select(Person))] + [o.name for o in s.scalars(select(Org).order_by(Org.id.desc()))]
     return "Студия «Северный мост», Андрей Ларин, Ирина Соболь. Клиенты и люди: " + ", ".join(names)
 
 
