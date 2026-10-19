@@ -15,7 +15,7 @@ from typing import Callable
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import llm, prompts
+from . import config, llm, prompts
 from .db import (
     CHANNEL_DEPTH,
     CLOSED,
@@ -810,7 +810,7 @@ def rewrite_wiki(s: Session, org_id: int, ev: Event) -> None:
         + f"\n\nНОВОЕ СОБЫТИЕ: {ev.code} ({ev.channel}, {ev.date}): {ev.summary}\n\n"
         + prompts.WIKI_FORMAT.replace("{code}", ev.code)
     )
-    data = llm.chat_json(prompts.WIKI_SYSTEM, user)
+    data = llm.chat_json(prompts.WIKI_SYSTEM, user, model=config.LLM_MODEL_FAST)  # вики пересказывает карточку — хватает быстрой модели
     s.add(
         Wiki(
             org_id=org_id,
