@@ -23,7 +23,10 @@ STT_MODEL = env("STT_MODEL", "whisper-1")
 
 # Telegram
 TG_TOKEN = env("TELEGRAM_BOT_TOKEN")
-TG_SECRET = env("TELEGRAM_WEBHOOK_SECRET", "hook")
+# Секрет вебхука: только буквы и цифры (Telegram передаёт его в заголовке, в адресе его нет)
+import hashlib as _h
+
+TG_SECRET = _h.sha256(env("TELEGRAM_WEBHOOK_SECRET", "hook").encode()).hexdigest()[:40]
 
 # Публичный адрес сайта: Render задаёт RENDER_EXTERNAL_URL сам
 PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL") or "http://localhost:8000").rstrip("/")

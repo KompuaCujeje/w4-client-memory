@@ -58,8 +58,8 @@ def set_webhook() -> str:
         return "токен бота не задан"
     if config.PUBLIC_URL.startswith("http://localhost"):
         return "нет публичного адреса"
-    url = f"{config.PUBLIC_URL}/tg/{config.TG_SECRET}"
-    res = tg("setWebhook", url=url, allowed_updates=["message"], drop_pending_updates=False) or {}
+    url = f"{config.PUBLIC_URL}/tg"
+    res = tg("setWebhook", url=url, secret_token=config.TG_SECRET, allowed_updates=["message"]) or {}
     tg(
         "setMyCommands",
         commands=[

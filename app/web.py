@@ -6,7 +6,7 @@ import html
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Form, Request, UploadFile
+from fastapi import APIRouter, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -307,16 +307,16 @@ def health(request: Request):
     if config.TG_TOKEN:
         info = bot.tg("getWebhookInfo") or {}
         r = info.get("result") or {}
-        checks["бот"] = f"вебхук: {r.get('url') or 'не задан'}" + (f"; последняя ошибка: {r.get('last_error_message')}" if r.get("last_error_message") else "")
+        checks["бот"] = ("подключён" if r.get("url") else "вебхук не задан") + f", в очереди {r.get('pending_update_count', 0)}" + (f"; последняя ошибка: {r.get('last_error_message')}" if r.get("last_error_message") else "")
     else:
         checks["бот"] = "токен TELEGRAM_BOT_TOKEN не задан"
     checks["адрес сайта"] = config.PUBLIC_URL
     return render(request, "health.html", checks=checks)
 
 
-@router.post("/tg/{secret}")
-async def telegram(secret: str, request: Request):
-    if secret != config.TG_SECRET:
+@router.post("/tg")
+async def telegram(request: Request):
+    if request.headers.get("x-telegram-bot-api-secret-token") != config.TG_SECRET:
         return JSONResponse({"ok": False}, 403)
     bot.handle_update(await request.json())
     return {"ok": True}
@@ -328,8 +328,3 @@ def reset(code: str = Form("")):
         return HTMLResponse("Сброс выключен или код неверный", 403)
     db.reset_db()
     return RedirectResponse("/", status_code=303)
-
-
-@router.post("/rewebhook")
-def rewebhook(bg: BackgroundTasks):
-    return {"result": bot.set_webhook()}
