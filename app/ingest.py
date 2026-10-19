@@ -482,8 +482,8 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         else:
             merged = _merge_names(person.name, name)
             if merged != person.name:
-                _add_aliases(person, [person.name])
-                person.name = merged  # «Елена Павловна» + «Елена Власова» → «Елена Павловна Власова»
+                old_name, person.name = person.name, merged
+                _add_aliases(person, [old_name])  # «Елена Павловна» + «Елена Власова» → «Елена Павловна Власова»
         _add_aliases(person, [name] + list(p.get("aliases") or []))
         refs[p.get("ref") or f"p{person.id}"] = ("person", person)
         org_ref = refs.get(p.get("org_ref") or "")
