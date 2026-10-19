@@ -55,11 +55,32 @@ def chat_json(system: str, user: str, model: str | None = None) -> dict:
     return _parse_json(r.choices[0].message.content or "{}")
 
 
-def transcribe(data: bytes, filename: str) -> str:
-    f = io.BytesIO(data)
-    f.name = filename or "audio.ogg"
-    r = client().audio.transcriptions.create(model=config.STT_MODEL, file=f, language="ru")
-    return (getattr(r, "text", "") or "").strip()
+def transcribe(data: bytes, filename: str, hint: str = "") -> str:
+    """Распознавание речи. Сначала точная модель, при ошибке — запасная. hint — имена из базы,
+    чтобы «Балтпорт» не стал «Болтпортом»."""
+    last: Exception | None = None
+    for model in dict.fromkeys([config.STT_MODEL, "whisper-1"]):
+        f = io.BytesIO(data)
+        f.name = filename or "audio.ogg"
+        try:
+            kw = {"prompt": hint[:800]} if hint else {}
+            r = client().audio.transcriptions.create(model=model, file=f, language="ru", **kw)
+            return (getattr(r, "text", "") or "").strip()
+        except Exception as e:  # noqa: BLE001
+            log.warning("STT %s: %s", model, e)
+            last = e
+    raise RuntimeError(f"распознавание не удалось: {last}")
+
+
+def stt_hint() -> str:
+    """Словарь для распознавания: названия клиентов и имена людей из базы."""
+    from sqlalchemy import select
+
+    from .db import Org, Person, session
+
+    with session() as s:
+        names = [o.name for o in s.scalars(select(Org))] + [p.name for p in s.scalars(select(Person))]
+    return "Студия «Северный мост», Андрей Ларин, Ирина Соболь. Клиенты и люди: " + ", ".join(names)
 
 
 def health() -> str:

@@ -130,7 +130,7 @@ def _route(msg: dict, chat) -> None:
     if msg.get("voice"):
         data, path = download(msg["voice"]["file_id"])
         send(chat, "🎙 Распознаю голосовое…")
-        said = llm.transcribe(data, path or "voice.ogg")
+        said = llm.transcribe(data, path or "voice.ogg", llm.stt_hint())
         if not said:
             return send(chat, "Не удалось распознать речь.")
         if qa.is_question(said):

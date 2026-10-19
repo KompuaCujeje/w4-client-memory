@@ -260,7 +260,7 @@ def process_event(event_id: int) -> None:
             import_table(s, ev, _blobs.pop(ev.id, b""))
         else:
             if ev.is_audio and not ev.text:
-                ev.text = llm.transcribe(_blobs.pop(ev.id, b""), ev.filename or "voice.ogg")
+                ev.text = llm.transcribe(_blobs.pop(ev.id, b""), ev.filename or "voice.ogg", llm.stt_hint())
                 s.commit()
             if ev.channel == "переписка":
                 split_chat(s, ev)

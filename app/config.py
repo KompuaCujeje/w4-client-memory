@@ -19,7 +19,7 @@ LLM_API_KEY = env("LLM_API_KEY") or env("OPENAI_API_KEY") or env("PROXYAPI_KEY")
 LLM_BASE_URL = env("LLM_BASE_URL", "https://api.proxyapi.ru/openai/v1")
 LLM_MODEL = env("LLM_MODEL", "gpt-4.1")
 LLM_MODEL_FAST = env("LLM_MODEL_FAST", "gpt-4.1-mini")
-STT_MODEL = env("STT_MODEL", "whisper-1")
+STT_MODEL = env("STT_MODEL", "gpt-4o-transcribe")  # при ошибке — whisper-1
 
 # Telegram
 TG_TOKEN = env("TELEGRAM_BOT_TOKEN")
