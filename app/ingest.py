@@ -155,6 +155,17 @@ def create_event(
         code = (meta.get("id") or "").upper()
         if code:
             old = s.scalar(select(Event).where(Event.code == code))
+            if old is not None and old.status == "error":
+                # разбор упал (например, сервис перезапустился) — повторная загрузка запускает его заново
+                old.status, old.error = "pending", ""
+                if is_audio or is_table:
+                    old.blob = data or b""
+                    if is_audio:
+                        old.text = ""
+                old.chat_id = str(chat_id or old.chat_id or "")
+                s.commit()
+                enqueue(old.id)
+                return old, False
             if old is not None:
                 return old, True
         else:
@@ -180,7 +191,8 @@ def create_event(
         s.add(ev)
         s.commit()
         if is_audio or is_table:
-            _blobs[ev.id] = data or b""
+            ev.blob = data or b""
+            s.commit()
         enqueue(ev.id)
         return ev, False
 
@@ -205,7 +217,7 @@ def start_worker() -> None:
         return
     with session() as s:  # недоразобранное после перезапуска — снова в очередь (текст уже в базе)
         for ev in s.scalars(select(Event).where(Event.status == "pending").order_by(Event.id)):
-            if ev.is_audio and not ev.text:
+            if ev.is_audio and not ev.text and not ev.blob:
                 ev.status, ev.error = "error", "сервис перезапустился до распознавания — пришлите голосовую ещё раз"
                 continue
             _q.put(ev.id)
@@ -259,10 +271,12 @@ def process_event(event_id: int) -> None:
         if ev.channel == "таблица":
             from .table import import_table
 
-            import_table(s, ev, _blobs.pop(ev.id, b""))
+            import_table(s, ev, ev.blob or b"")
+            ev.blob = None
         else:
             if ev.is_audio and not ev.text:
-                ev.text = llm.transcribe(_blobs.pop(ev.id, b""), ev.filename or "voice.ogg", llm.stt_hint())
+                ev.text = llm.transcribe(ev.blob or b"", ev.filename or "voice.ogg", llm.stt_hint())
+                ev.blob = None
                 s.commit()
             if ev.channel == "переписка":
                 split_chat(s, ev)

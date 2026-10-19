@@ -6,6 +6,9 @@ import datetime as dt
 
 from sqlalchemy import (
     JSON,
+    LargeBinary,
+    inspect,
+    text,
     Boolean,
     Date,
     DateTime,
@@ -78,6 +81,7 @@ class Event(Base):
     processed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     seconds: Mapped[float | None] = mapped_column(Float)
     chat_id: Mapped[str] = mapped_column(String(40), default="")  # куда сообщить о разборе
+    blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # аудио/таблица до разбора — переживает перезапуск
 
     @property
     def depth(self) -> int:
@@ -204,6 +208,12 @@ class Wiki(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    # мягкая миграция: новые колонки в уже созданной базе
+    cols = {c["name"] for c in inspect(engine).get_columns("events")}
+    if "blob" not in cols:
+        kind = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+        with engine.begin() as con:
+            con.execute(text(f"ALTER TABLE events ADD COLUMN blob {kind}"))
 
 
 def reset_db() -> None:
