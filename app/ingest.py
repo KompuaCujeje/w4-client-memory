@@ -422,10 +422,20 @@ def _known_org(s: Session, key: str) -> Org | None:
     return None
 
 
-def find_person(s: Session, name: str, pid=None) -> Person | None:
+def find_person(s: Session, name: str, pid=None, org_id: int | None = None) -> Person | None:
     for p in s.scalars(select(Person)):
         if same_person(p.name, name) or any(same_person(a, name) for a in p.aliases or []):
             return p
+    # «Марина Сергеевна» в голосовой = «Марина Котова» с встречи: то же имя у единственного человека этой организации
+    if org_id and not _int(pid):
+        first = (name.split() or [""])[0].lower().rstrip(".")
+        same = [
+            j.person
+            for j in s.scalars(select(Job).where(Job.org_id == org_id))
+            if first and len(first) > 1 and j.person.name.split()[0].lower() == first
+        ]
+        if len({p.id for p in same}) == 1:
+            return same[0]
     p = s.get(Person, _int(pid)) if _int(pid) else None
     return p  # «Анна Р.» = «Анна Игоревна Римская» — узнаёт ИИ
 
@@ -436,7 +446,13 @@ def _merge_names(cur: str, new: str) -> str:
     if not a or not b or a[0].lower().rstrip(".") != b[0].lower().rstrip(".") or len(b[0].rstrip(".")) < 2:
         return cur if len(b) <= len(a) or not set(w.lower() for w in a) <= set(w.lower() for w in b) else new
     extra = [w for w in b[1:] if w.lower() not in {x.lower() for x in a} and len(w.rstrip(".")) > 1]
-    return " ".join(a + extra) if extra and len(a) + len(extra) <= 3 else cur
+    if not extra or len(a) + len(extra) > 3:
+        return cur
+    patr = [w for w in extra if w.lower().endswith(("вич", "вна", "ична", "чна"))]
+    rest = [w for w in extra if w not in patr]
+    a_patr = [w for w in a[1:] if w.lower().endswith(("вич", "вна", "ична", "чна"))]
+    a_rest = [w for w in a[1:] if w not in a_patr]
+    return " ".join([a[0]] + (a_patr or patr) + a_rest + rest)  # Имя Отчество Фамилия
 
 
 def _is_ours(name: str) -> bool:
@@ -492,7 +508,8 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         name = " ".join(kept) if kept else name
         if not name or _is_ours(name):
             continue
-        person = find_person(s, name, p.get("id"))
+        _oref = refs.get(p.get("org_ref") or "")
+        person = find_person(s, name, p.get("id"), _oref[1].id if _oref and _oref[0] == "org" else None)
         if person is None:
             person = Person(name=name, aliases=[], first_event=ev.code, note=p.get("note") or "")
             s.add(person)
@@ -502,7 +519,13 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             if merged != person.name:
                 old_name, person.name = person.name, merged
                 _add_aliases(person, [old_name])  # «Елена Павловна» + «Елена Власова» → «Елена Павловна Власова»
-        _add_aliases(person, [name] + _seen(p.get("aliases"), source_text))
+        seen = _seen(p.get("aliases"), source_text)
+        _add_aliases(person, [name] + seen)
+        for al in seen:  # «Елена Павловна» + синоним «Елена Власова» → «Елена Павловна Власова»
+            merged = _merge_names(person.name, al)
+            if merged != person.name:
+                old_name, person.name = person.name, merged
+                _add_aliases(person, [old_name])
         refs[p.get("ref") or f"p{person.id}"] = ("person", person)
         org_ref = refs.get(p.get("org_ref") or "")
         if org_ref and org_ref[0] == "org":
