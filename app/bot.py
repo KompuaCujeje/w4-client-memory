@@ -23,6 +23,8 @@ HELP = (
     "/orgs — все организации\n"
     "/org Терра — карточка клиента\n"
     "/brief Терра — справка к встрече\n"
+    "/company Медлайн — справка о компании\n"
+    "/person Римская — справка о человеке\n"
     "/stale — протухшие сделки и риски\n"
     "/funnel — воронка и менеджеры\n"
     f"\nСайт: {config.PUBLIC_URL}"
@@ -66,6 +68,8 @@ def set_webhook() -> str:
             {"command": "orgs", "description": "все организации"},
             {"command": "org", "description": "карточка клиента: /org Терра"},
             {"command": "brief", "description": "справка к встрече: /brief Терра"},
+            {"command": "company", "description": "справка о компании: /company Медлайн"},
+            {"command": "person", "description": "справка о человеке: /person Римская"},
             {"command": "stale", "description": "протухшие сделки и риски"},
             {"command": "funnel", "description": "воронка и менеджеры"},
             {"command": "help", "description": "что умеет бот"},
@@ -173,6 +177,18 @@ def _command(chat, cmd: str, arg: str) -> None:
             if not orgs:
                 return send(chat, "Пока пусто. Пришлите первое событие.")
             return send(chat, "\n".join(f"• {o.name} — {config.PUBLIC_URL}/org/{o.id}" for o in orgs))
+        if cmd == "/company":
+            org = qa.find_org_by_text(s, arg) if arg else None
+            if org is None:
+                return send(chat, "Напишите название: /company Медлайн")
+            send(chat, f"Собираю справку о компании «{org.name}»…")
+            return send(chat, with_sources(qa.company_brief(s, org)))
+        if cmd == "/person":
+            p = qa.find_person_by_text(s, arg) if arg else None
+            if p is None:
+                return send(chat, "Напишите имя: /person Римская")
+            send(chat, f"Собираю справку о человеке «{p.name}»…")
+            return send(chat, with_sources(qa.person_brief(s, p)))
         if cmd in ("/org", "/brief"):
             if not arg:
                 return send(chat, f"Напишите название: {cmd} Терра")

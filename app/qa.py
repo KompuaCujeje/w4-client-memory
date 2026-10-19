@@ -162,3 +162,73 @@ def codes_in(text: str) -> list[str]:
 
 
 __all__ = ["answer", "brief", "find_org_by_text", "is_question", "codes_in", "base_context", "Project"]
+
+
+def company_brief(s: Session, org: Org) -> str:
+    import json
+
+    card = org_card_json(s, org.id)
+    today = analytics.as_of(s)
+    card["deals"] = [
+        {"project": d.project.title, "product": d.project.product, "stage": d.project.stage, "last_contact": str(d.last_contact or ""),
+         "event": d.last_contact_event, "stale": d.stale}
+        for d in (analytics.deal_state(s, p, today) for p in org.projects)
+    ]
+    return clean_refs(s, llm.chat_text(prompts.COMPANY_SYSTEM, f"Дата: {today}\nКАРТОЧКА (JSON):\n{json.dumps(card, ensure_ascii=False)}\n\n{prompts.COMPANY_FORMAT}"))
+
+
+def person_card_json(s: Session, p: Person) -> dict:
+    from .db import Link
+    from .names import person_key
+
+    names = [p.name] + list(p.aliases or [])
+    jobs = [{"org": j.org.name, "role": j.role, "current": j.current, "since": str(j.since or ""), "until": str(j.until or ""), "event": j.event_code} for j in p.jobs]
+    facts = [
+        {"kind": f.kind, "text": f.text, "value": f.value, "event": f.event_code, "date": str(f.date or ""), "channel": f.channel, "confidential": f.confidential}
+        for f in s.scalars(select(Fact).where(Fact.person_id == p.id))
+    ]
+    # факты, где человек назван по имени (обещания, просьбы, решения)
+    keys = [person_key(n) for n in names if len(n) > 3]
+    for f in s.scalars(select(Fact).where(Fact.person_id.is_(None))):
+        t = person_key(f.text)
+        if any(k and k in t for k in keys):
+            facts.append({"kind": f.kind, "text": f.text, "value": f.value, "event": f.event_code, "date": str(f.date or ""), "channel": f.channel, "confidential": f.confidential})
+    links = []
+    for lk in s.scalars(select(Link).where(((Link.a_type == "person") & (Link.a_id == str(p.id))) | ((Link.b_type == "person") & (Link.b_id == str(p.id))))):
+        other = lk.b_id if lk.a_id == str(p.id) else lk.a_id
+        other_type = lk.b_type if lk.a_id == str(p.id) else lk.a_type
+        label = other
+        if other_type == "person" and s.get(Person, int(other)):
+            label = s.get(Person, int(other)).name
+        elif other_type == "org" and s.get(Org, int(other)):
+            label = s.get(Org, int(other)).name
+        links.append({"kind": lk.kind, "with": label, "event": lk.event_code, "quote": lk.quote})
+    org_ids = {j.org_id for j in p.jobs}
+    contacts = []
+    for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date)):
+        text = person_key(e.text + " " + e.summary + " " + e.author)
+        if any(k and k in text for k in keys) or (set(e.org_ids or []) & org_ids and e.live_contact):
+            contacts.append({"event": e.code, "date": str(e.date or ""), "channel": e.channel, "summary": e.summary, "live_contact": e.live_contact})
+    return {"person": {"name": p.name, "aliases": p.aliases, "note": p.note}, "jobs": jobs, "facts": facts, "links": links, "contacts": contacts}
+
+
+def person_brief(s: Session, p: Person) -> str:
+    import json
+
+    card = person_card_json(s, p)
+    today = analytics.as_of(s)
+    return clean_refs(s, llm.chat_text(prompts.PERSON_SYSTEM, f"Дата: {today}\nКАРТОЧКА (JSON):\n{json.dumps(card, ensure_ascii=False)}\n\n{prompts.PERSON_FORMAT}"))
+
+
+def find_person_by_text(s: Session, text: str) -> Person | None:
+    from .names import person_key
+
+    t = person_key(text)
+    best = None
+    for p in s.scalars(select(Person)):
+        for n in [p.name] + list(p.aliases or []):
+            k = person_key(n)
+            if k and len(k) > 2 and (k in t or t in k):
+                if best is None or len(k) > len(best[1]):
+                    best = (p, k)
+    return best[0] if best else None

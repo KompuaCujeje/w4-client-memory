@@ -3,7 +3,7 @@
 {% block body %}
 <h1>{{ o.name }}</h1>
 <p class="muted">{% if o.city %}{{ o.city }} · {% endif %}{% if o.aliases %}другие имена: {{ o.aliases|join(", ") }} · {% endif %}первое событие <a class="src" href="{{ code_href(o.first_event) }}">{{ o.first_event }}</a></p>
-<p><a class="btn" href="/org/{{ o.id }}/brief">Справка к встрече</a> <span class="small muted">собирается за 10–30 секунд</span></p>
+<p><a class="btn" href="/org/{{ o.id }}/brief">Справка к встрече</a> <a class="btn ghost" href="/org/{{ o.id }}/research">Справка о компании</a> <span class="small muted">собирается за 10–30 секунд</span></p>
 
 <div class="grid g2">
 <div>

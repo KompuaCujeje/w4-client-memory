@@ -60,8 +60,10 @@ def norm_channel(raw: str) -> str:
         return "письмо"
     if "записк" in r or "заметк" in r or "note" in r:
         return "записка"
-    if "новост" in r or "news" in r or "стать" in r:
+    if "новост" in r or "news" in r:
         return "новость"
+    if any(k in r for k in ("выписк", "отчет", "отчёт", "интервью", "стать", "источник", "егрюл", "профил", "справк", "source")):
+        return "внешний источник"
     if "таблиц" in r or "выгрузк" in r:
         return "таблица"
     return "другое"
@@ -471,7 +473,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
     ev.internal = bool(d.get("internal"))
     ev.same_meeting_as = (d.get("same_meeting_as") or "") or ""
     ev.live_contact = bool(d.get("live_contact")) and not ev.internal and not ev.same_meeting_as
-    if ev.channel in ("новость", "таблица"):
+    if ev.channel in ("новость", "таблица", "внешний источник"):
         ev.live_contact = False
     ev.contact_kind = d.get("contact_kind") or ""
 
@@ -617,7 +619,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             event_code=code,
             date=date,
             channel=ev.channel,
-            confirmed=CHANNEL_DEPTH.get(ev.channel, 0) >= 3 or ev.channel == "новость",
+            confirmed=CHANNEL_DEPTH.get(ev.channel, 0) >= 3 or ev.channel in ("новость", "внешний источник"),
             confidential=bool(f.get("confidential")),
         )
         s.add(fact)

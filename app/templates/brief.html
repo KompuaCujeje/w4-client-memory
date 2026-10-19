@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Справка к встрече: {{ o.name }}</h1>
-<p class="muted">На {{ as_of }} · <a href="/org/{{ o.id }}">карточка</a></p>
+<h1>{{ title or ("Справка к встрече: " ~ o.name) }}</h1>
+<p class="muted">На {{ as_of }} · <a href="{{ back or ('/org/' ~ o.id) }}">карточка</a> · только наши события и выданные источники, у каждого пункта — ссылка</p>
 <div class="card wiki">{{ text|md|safe }}</div>
 {% endblock %}

@@ -31,6 +31,10 @@ KIND_NAMES = {
     "news": "Новости",
     "risk": "Риски",
     "personal": "Личное",
+    "business": "Чем занимается",
+    "owners": "Владельцы и руководство",
+    "size": "Размер (выручка, штат)",
+    "geo": "География",
     "stage": "Этап",
     "contact": "Контакты",
     "other": "Другое",
@@ -483,3 +487,23 @@ def version():
     import os
 
     return {"commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7]}
+
+
+@router.get("/org/{org_id}/research", response_class=HTMLResponse)
+def org_research(request: Request, org_id: int):
+    with session() as s:
+        o = s.get(Org, org_id)
+        if o is None:
+            return HTMLResponse("Нет такой организации", 404)
+        text = qa.company_brief(s, o)
+        return render(request, "brief.html", o=o, text=text, as_of=analytics.as_of(s), title=f"Справка о компании: {o.name}", back=f"/org/{o.id}")
+
+
+@router.get("/person/{pid}/research", response_class=HTMLResponse)
+def person_research(request: Request, pid: int):
+    with session() as s:
+        p = s.get(Person, pid)
+        if p is None:
+            return HTMLResponse("Нет такого человека", 404)
+        text = qa.person_brief(s, p)
+        return render(request, "brief.html", o=p, text=text, as_of=analytics.as_of(s), title=f"Справка о человеке: {p.name}", back=f"/person/{p.id}")
