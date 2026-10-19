@@ -16,6 +16,7 @@ log = logging.getLogger("main")
 async def lifespan(app: FastAPI):
     db.init_db()
     ingest.start_worker()
+    ingest.fix_stages_on_start()
     try:
         log.info("webhook: %s", bot.set_webhook())
     except Exception:  # noqa: BLE001

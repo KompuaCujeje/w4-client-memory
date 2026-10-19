@@ -252,6 +252,27 @@ def _notify(ev: Event, text: str) -> None:
             log.exception("notify failed")
 
 
+def fix_stages_on_start() -> None:
+    """Один раз при запуске: правило этапа для уже загруженной базы (и вики этих клиентов — в фоне)."""
+
+    def run() -> None:
+        try:
+            with session() as s:
+                orgs = floor_stages(s)
+                s.commit()
+                for oid in dict.fromkeys(orgs):
+                    evs = [e for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date.desc(), Event.id.desc())) if oid in (e.org_ids or [])]
+                    if evs:
+                        rewrite_wiki(s, oid, evs[0])
+                s.commit()
+                if orgs:
+                    log.info("этап поднят до «потребности» у организаций %s", orgs)
+        except Exception:  # noqa: BLE001
+            log.exception("fix_stages_on_start")
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def wait_idle(timeout: float = 600) -> None:
     """Для тестов: дождаться, пока очередь опустеет."""
     t0 = time.time()
@@ -781,8 +802,28 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             if other.depth > ev.depth and set(other.org_ids or []) & set(touched) and other.live_contact:
                 ev.same_meeting_as, ev.live_contact = other.code, False
                 break
+    for oid in floor_stages(s):
+        touch(oid)
     s.commit()
     return touched
+
+
+def floor_stages(s: Session) -> list[int]:
+    """Словарь: «знакомство» — задача ещё не названа. Если клиент назвал задачу или мы ждём от него вводные/ТЗ,
+    сделка не ниже «потребности» («переговоры» — не этап). Правило без ИИ: ИИ здесь путается."""
+    changed: list[int] = []
+    for p in s.scalars(select(Project).where(Project.stage == "знакомство", Project.duplicate_of.is_(None))):
+        if "#" in (p.source or ""):
+            continue  # строки старой таблицы — как в таблице
+        fs = [
+            f
+            for f in s.scalars(select(Fact).where(Fact.project_id == p.id, Fact.kind.in_(["need", "scope", "waiting"])).order_by(Fact.date, Fact.id))
+            if not f.superseded_by
+        ]
+        if fs and fs[0].date:
+            _set_stage(p, "потребность", fs[0].date, fs[0].event_code.split(".")[0])
+            changed.append(p.org_id)
+    return changed
 
 
 def _manager_from_author(author: str) -> str:
