@@ -281,6 +281,7 @@ def process_event(event_id: int) -> None:
             if ev.channel == "переписка":
                 split_chat(s, ev)
             touched = extract_and_apply(s, ev)
+            touched = sorted(set(touched) | set(check_done(s, ev, touched)))
             for oid in touched:
                 rewrite_wiki(s, oid, ev)
         ev.status = "done"
@@ -406,6 +407,68 @@ def extract_and_apply(s: Session, ev: Event) -> list[int]:
     )
     data = llm.chat_json(prompts.EXTRACT_SYSTEM, user)
     return apply_extraction(s, ev, data)
+
+
+DONE_KINDS = {"promise": "мы обещали", "waiting": "ждём от клиента", "request": "клиент просил"}
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^0-9a-zа-я]+", " ", (text or "").lower().replace("ё", "е")).strip()
+
+
+def _quote_in(quote: str, text: str) -> bool:
+    """Фраза-доказательство должна быть в тексте события: дословно или почти (≥80% значимых слов)."""
+    q, low = _norm(quote), _norm(text)
+    if not q:
+        return False
+    if q in low:
+        return True
+    words = [w for w in q.split() if len(w) > 3]
+    have = set(low.split())
+    return bool(words) and sum(w in have for w in words) / len(words) >= 0.8
+
+
+def check_done(s: Session, ev: Event, org_ids) -> list[int]:
+    """Отдельный шаг: какие открытые обещания, ожидания и просьбы клиента закрывает это событие.
+    Закрытие засчитываем, только если фраза-доказательство есть в тексте события."""
+    org_ids = [o for o in org_ids or [] if o]
+    if not org_ids:
+        return []
+    open_items = [
+        f
+        for f in s.scalars(select(Fact).where(Fact.org_id.in_(org_ids), Fact.kind.in_(list(DONE_KINDS)), Fact.done.is_(False)).order_by(Fact.id))
+        if not f.superseded_by and f.event_code != ev.code and not f.event_code.startswith(ev.code + ".")
+    ]
+    if not open_items:
+        return []
+    orgs = {o.id: o.name for o in s.scalars(select(Org).where(Org.id.in_(org_ids)))}
+    lines = [
+        f"- fact_id {f.id} · {DONE_KINDS[f.kind]} · {orgs.get(f.org_id, '')} · {f.text}"
+        + (f" (срок/значение: {f.value})" if f.value else "")
+        + f" · записано в {f.event_code} {f.date or ''}"
+        for f in open_items
+    ]
+    payload = event_payload(s, ev)
+    user = "ОТКРЫТЫЕ ОБЯЗАТЕЛЬСТВА:\n" + "\n".join(lines) + "\n\nСОБЫТИЕ:\n" + payload
+    try:
+        data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL_FAST)
+    except Exception as e:  # noqa: BLE001 — проверка обещаний не должна ронять разбор события
+        log.warning("проверка обещаний %s: %s", ev.code, e)
+        return []
+    by_id = {f.id: f for f in open_items}
+    kids = {m.code for m in s.scalars(select(Event).where(Event.parent == ev.code))}
+    out = []
+    for d in data.get("done") or []:
+        f = by_id.get(_int(d.get("fact_id")))
+        quote = (d.get("quote") or "").strip()
+        if f is None or not _quote_in(quote, payload):
+            log.info("проверка обещаний %s: пропущено %s", ev.code, d)
+            continue
+        msg = (d.get("msg") or "").strip()
+        f.done, f.done_event, f.done_quote = True, (msg if msg in kids else ev.code), quote[:300]
+        out.append(f.org_id)
+    s.commit()
+    return out
 
 
 def _seen(names, text: str) -> list[str]:
@@ -666,14 +729,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         _supersede(s, fact, ev)
         touch(org_id)
 
-    for dn in d.get("done") or []:
-        try:
-            fact = s.get(Fact, int(dn.get("fact_id")))
-        except (TypeError, ValueError):
-            fact = None
-        if fact:
-            fact.done, fact.done_event = True, ev.code
-            touch(fact.org_id)
+    # выполнение обещаний отмечает отдельный шаг check_done — с фразой-доказательством из события
 
     for c in d.get("conflicts") or []:
         target = refs.get(c.get("about") or "")

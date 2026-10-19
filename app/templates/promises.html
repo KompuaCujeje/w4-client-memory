@@ -10,7 +10,7 @@
 {% for f, o, m in rows %}
 <tr><td>{% if o %}<a href="/org/{{ o.id }}">{{ o.name }}</a>{% endif %}<br><span class="small muted">{{ m }}</span></td>
 <td>{{ f.text }}{% if f.value %} — <b>{{ f.value }}</b>{% endif %}<br><span class="small muted">{{ f.date }} · {{ f.channel }}</span></td>
-<td>{% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}">{{ f.done_event }}</a></span>{% else %}<span class="tag stale">открыто</span>{% endif %}</td>
+<td>{% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}{% if f.done_quote %}?hl={{ f.done_quote|urlencode }}#hl{% endif %}">{{ f.done_event }}</a></span>{% if f.done_quote %} <span class="small muted">по фразе «{{ f.done_quote }}»</span>{% endif %}{% else %}<span class="tag stale">открыто</span>{% endif %}</td>
 <td class="small">{% if f.quote %}<a href="{{ code_href(f.event_code) }}?hl={{ f.quote|urlencode }}#hl">«{{ f.quote }}»</a>{% endif %} <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a></td></tr>
 {% else %}<tr><td colspan="4" class="muted">Нет.</td></tr>{% endfor %}
 </table>

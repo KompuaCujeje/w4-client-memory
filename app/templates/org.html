@@ -47,7 +47,7 @@
       {% if f.project_id and projects_by_id.get(f.project_id) %}<span class="tag">{{ projects_by_id[f.project_id].product or projects_by_id[f.project_id].title }}</span>{% endif %}
       {% if not f.confirmed %}<span class="tag unc">не подтверждено</span>{% endif %}
       {% if f.confidential %}<span class="tag conf">конфиденциально</span>{% endif %}
-      {% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}">{{ f.done_event }}</a></span>{% elif k in ("promise","request","waiting") %}<span class="tag stale">открыто</span>{% endif %}
+      {% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}{% if f.done_quote %}?hl={{ f.done_quote|urlencode }}#hl{% endif %}">{{ f.done_event }}</a></span>{% if f.done_quote %} <span class="small muted">по фразе «{{ f.done_quote }}»</span>{% endif %}{% elif k in ("promise","request","waiting") %}<span class="tag stale">открыто</span>{% endif %}
       {% if f.superseded_by %}<span class="small">заменено <a href="{{ code_href(f.superseded_by) }}">{{ f.superseded_by }}</a></span>{% endif %}
       {% if f.quote %}<br><span class="small muted">«{{ f.quote }}»</span>{% endif %}</li>
   {% endfor %}</ul>
