@@ -154,6 +154,7 @@ def org_card(request: Request, org_id: int, v: int | None = None):
         events = [e for e in s.scalars(select(Event).where(Event.parent == "").order_by(Event.date.desc(), Event.id.desc())) if org_id in (e.org_ids or [])]
         ctx = dict(
             o=o,
+            links=org_links(s, o),
             wiki=wiki,
             versions=versions,
             jobs=list(s.scalars(select(Job).where(Job.org_id == org_id))),
@@ -166,6 +167,32 @@ def org_card(request: Request, org_id: int, v: int | None = None):
             projects_by_id={p.id: p for p in o.projects},
         )
         return render(request, "org.html", **ctx)
+
+
+def node_name(s, typ: str, ident: str) -> tuple[str, str]:
+    """(подпись, ссылка) для конца связи графа."""
+    if typ == "org" and s.get(Org, int(ident)):
+        return s.get(Org, int(ident)).name, f"/org/{ident}"
+    if typ == "person" and s.get(Person, int(ident)):
+        return s.get(Person, int(ident)).name, f"/person/{ident}"
+    if typ == "project" and s.get(Project, int(ident)):
+        p = s.get(Project, int(ident))
+        return f"{p.org.name}: {p.product or p.title}", f"/org/{p.org_id}"
+    return ident, ""
+
+
+def org_links(s, o: Org) -> list[dict]:
+    from .db import Link
+
+    mine = {("org", str(o.id))} | {("person", str(j.person_id)) for j in s.scalars(select(Job).where(Job.org_id == o.id))}
+    mine |= {("project", str(p.id)) for p in o.projects}
+    out = []
+    for lk in s.scalars(select(Link)):
+        if (lk.a_type, lk.a_id) in mine or (lk.b_type, lk.b_id) in mine:
+            a, ah = node_name(s, lk.a_type, lk.a_id)
+            b, bh = node_name(s, lk.b_type, lk.b_id)
+            out.append({"a": a, "ah": ah, "kind": lk.kind, "b": b, "bh": bh, "event": lk.event_code, "quote": lk.quote})
+    return out
 
 
 @router.get("/org/{org_id}/brief", response_class=HTMLResponse)
@@ -197,7 +224,14 @@ def person(request: Request, pid: int):
         if p is None:
             return HTMLResponse("Нет такого человека", 404)
         facts = list(s.scalars(select(Fact).where(Fact.person_id == pid).order_by(Fact.date)))
-        return render(request, "person.html", p=p, facts=facts)
+        from .db import Link
+
+        links = []
+        for lk in s.scalars(select(Link).where(((Link.a_type == "person") & (Link.a_id == str(pid))) | ((Link.b_type == "person") & (Link.b_id == str(pid))))):
+            a, ah = node_name(s, lk.a_type, lk.a_id)
+            b, bh = node_name(s, lk.b_type, lk.b_id)
+            links.append({"a": a, "ah": ah, "kind": lk.kind, "b": b, "bh": bh, "event": lk.event_code, "quote": lk.quote})
+        return render(request, "person.html", p=p, facts=facts, links=links)
 
 
 @router.get("/projects", response_class=HTMLResponse)

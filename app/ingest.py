@@ -376,6 +376,17 @@ def extract_and_apply(s: Session, ev: Event) -> list[int]:
     return apply_extraction(s, ev, data)
 
 
+def _seen(names, text: str) -> list[str]:
+    """Синоним берём, только если он есть в тексте события: ИИ не должен придумывать отчества и написания."""
+    low = (text or "").lower().replace("ё", "е")
+    out = []
+    for n in names or []:
+        n = (n or "").strip()
+        if len(n) > 2 and n.lower().replace("ё", "е") in low:
+            out.append(n)
+    return out
+
+
 def _add_aliases(obj, names) -> None:
     al = list(obj.aliases or [])
     for n in names or []:
@@ -434,6 +445,9 @@ def _is_ours(name: str) -> bool:
 
 
 def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
+    source_text = (ev.text or "") + " " + " ".join(
+        m.text + " " + m.author for m in s.scalars(select(Event).where(Event.parent == ev.code))
+    ) + " " + (ev.author or "")
     date = ev.date or parse_date(d.get("date")) or dt.date.today()
     if ev.date is None:
         ev.date = date
@@ -466,12 +480,16 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
                 org.city = o["city"]
             if not org.about and o.get("about"):
                 org.about = o["about"]
-        _add_aliases(org, [name] + list(o.get("aliases") or []))
+        _add_aliases(org, [name] + _seen(o.get("aliases"), source_text))
         refs[o.get("ref") or f"o{org.id}"] = ("org", org)
         touch(org.id)
 
+    low_text = source_text.lower().replace("ё", "е")
     for p in d.get("people") or []:
         name = (p.get("name") or "").strip()
+        # слова имени, которых нет в событии (додуманное отчество), отбрасываем
+        kept = [w for w in name.split() if w.lower().replace("ё", "е").rstrip(".") in low_text]
+        name = " ".join(kept) if kept else name
         if not name or _is_ours(name):
             continue
         person = find_person(s, name, p.get("id"))
@@ -484,7 +502,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             if merged != person.name:
                 old_name, person.name = person.name, merged
                 _add_aliases(person, [old_name])  # «Елена Павловна» + «Елена Власова» → «Елена Павловна Власова»
-        _add_aliases(person, [name] + list(p.get("aliases") or []))
+        _add_aliases(person, [name] + _seen(p.get("aliases"), source_text))
         refs[p.get("ref") or f"p{person.id}"] = ("person", person)
         org_ref = refs.get(p.get("org_ref") or "")
         if org_ref and org_ref[0] == "org":
