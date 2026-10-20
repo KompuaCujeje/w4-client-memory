@@ -470,7 +470,7 @@ def dump():
                 ],
                 "facts": [
                     {"org": f.org_id, "person": f.person_id, "project": f.project_id, "kind": f.kind, "text": f.text, "value": f.value, "ev": f.event_code,
-                     "ch": f.channel, "ok": f.confirmed, "conf": f.confidential, "done": f.done_event, "done_q": f.done_quote, "repl": f.superseded_by}
+                     "ch": f.channel, "ok": f.confirmed, "conf": f.confidential, "done": f.done_event, "done_q": f.done_quote, "conf_by": f.confirmed_by, "repl": f.superseded_by}
                     for f in s.scalars(select(Fact).where(~Fact.event_code.like("E00#%")))
                 ],
                 "conflicts": [

@@ -164,6 +164,8 @@ class Fact(Base):
     done: Mapped[bool] = mapped_column(Boolean, default=False)  # для обещаний и просьб
     done_event: Mapped[str] = mapped_column(String(32), default="")
     done_quote: Mapped[str] = mapped_column(Text, default="")  # фраза события, которая закрыла обещание
+    confirmed_by: Mapped[str] = mapped_column(String(32), default="")  # более глубокий источник, подтвердивший факт из голосовой/записки
+    confirmed_quote: Mapped[str] = mapped_column(Text, default="")
     superseded_by: Mapped[str] = mapped_column(String(32), default="")
 
 
@@ -215,9 +217,11 @@ def init_db() -> None:
         kind = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
         with engine.begin() as con:
             con.execute(text(f"ALTER TABLE events ADD COLUMN blob {kind}"))
-    if "done_quote" not in {c["name"] for c in inspect(engine).get_columns("facts")}:
-        with engine.begin() as con:
-            con.execute(text("ALTER TABLE facts ADD COLUMN done_quote TEXT DEFAULT ''"))
+    fcols = {c["name"] for c in inspect(engine).get_columns("facts")}
+    for col, kind in (("done_quote", "TEXT"), ("confirmed_by", "VARCHAR(32)"), ("confirmed_quote", "TEXT")):
+        if col not in fcols:
+            with engine.begin() as con:
+                con.execute(text(f"ALTER TABLE facts ADD COLUMN {col} {kind} DEFAULT ''"))
 
 
 def reset_db() -> None:

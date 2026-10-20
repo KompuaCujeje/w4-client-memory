@@ -32,7 +32,7 @@
   {% if history %}
   <h2>История вводных</h2>
   <table><tr><th>Что</th><th>Как менялось</th></tr>
-  {% for name, items in history %}<tr><td>{{ name }}</td><td>{% for f in items %}{% if not loop.first %} → {% endif %}<span class="{{ 'strike' if f.superseded_by }}">{{ f.value or f.text }}</span> <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }}{% if not f.confirmed %}, не подтв.{% endif %}</span>{% endfor %}
+  {% for name, items in history %}<tr><td>{{ name }}</td><td>{% for f in items %}{% if not loop.first %} → {% endif %}<span class="{{ 'strike' if f.superseded_by }}">{{ f.value or f.text }}</span> <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }}{% if not f.confirmed %}, не подтв.{% elif f.confirmed_by %}, подтв. {{ f.confirmed_by }}{% endif %}</span>{% endfor %}
     {% set cur = items|rejectattr("superseded_by")|list %}{% if cur %}<br><span class="small">сейчас: <b>{{ cur[-1].value or cur[-1].text }}</b></span>{% endif %}</td></tr>{% endfor %}
   </table>
   {% endif %}
@@ -45,7 +45,7 @@
     <li class="{{ 'strike' if f.superseded_by }}">{{ f.text }}{% if f.value and f.value not in f.text %} — <b>{{ f.value }}</b>{% endif %}
       <a class="src" href="{{ code_href(f.event_code) }}">{{ f.event_code }}</a> <span class="small muted">{{ f.date }} · {{ f.channel }}</span>
       {% if f.project_id and projects_by_id.get(f.project_id) %}<span class="tag">{{ projects_by_id[f.project_id].product or projects_by_id[f.project_id].title }}</span>{% endif %}
-      {% if not f.confirmed %}<span class="tag unc">не подтверждено</span>{% endif %}
+      {% if not f.confirmed %}<span class="tag unc">не подтверждено</span>{% elif f.confirmed_by %}<span class="tag ok">подтверждено <a href="{{ code_href(f.confirmed_by) }}{% if f.confirmed_quote %}?hl={{ f.confirmed_quote|urlencode }}#hl{% endif %}">{{ f.confirmed_by }}</a></span>{% if f.confirmed_quote %} <span class="small muted">«{{ f.confirmed_quote }}»</span>{% endif %}{% endif %}
       {% if f.confidential %}<span class="tag conf">конфиденциально</span>{% endif %}
       {% if f.done %}<span class="tag ok">выполнено <a href="{{ code_href(f.done_event) }}{% if f.done_quote %}?hl={{ f.done_quote|urlencode }}#hl{% endif %}">{{ f.done_event }}</a></span>{% if f.done_quote %} <span class="small muted">по фразе «{{ f.done_quote }}»</span>{% endif %}{% elif k in ("promise","request","waiting") %}<span class="tag stale">открыто</span>{% endif %}
       {% if k == "risk" %}{% for d in deals %}{% if f.id in d.cleared %}<span class="tag ok">риск снят: сделка перешла на «{{ d.cleared[f.id][0] }}» <a href="{{ code_href(d.cleared[f.id][1]) }}">{{ d.cleared[f.id][1] }}</a></span>{% elif f in d.risks %}<span class="tag risk">в риске с {{ f.date }}</span>{% endif %}{% endfor %}{% endif %}

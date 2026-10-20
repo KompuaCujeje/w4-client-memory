@@ -450,6 +450,43 @@ def _quote_in(quote: str, text: str) -> bool:
     return bool(words) and sum(w in have for w in words) / len(words) >= 0.8
 
 
+EXTERNAL = ("новость", "внешний источник")
+
+
+def _event(s: Session, code: str) -> Event | None:
+    return s.scalar(select(Event).where(Event.code == (code or "").strip())) if code else None
+
+
+def _top(s: Session, e: Event) -> Event:
+    return (_event(s, e.parent) or e) if e.parent else e
+
+
+def judge_conflict(s: Session, code_a: str, code_b: str) -> str | None:
+    """Вердикт по словарю считает код, не ИИ. None — это не противоречие, а изменение со временем
+    (на новом разговоре бюджет урезали) — тогда текущее значение последнее, а смена видна в истории вводных."""
+    a, b = _event(s, code_a), _event(s, code_b)
+    if a is None or b is None:
+        return "не решено: не найден источник одной из версий"
+    ta, tb = _top(s, a), _top(s, b)
+    da, db_ = CHANNEL_DEPTH.get(a.channel, 0), CHANNEL_DEPTH.get(b.channel, 0)
+    if a.channel in EXTERNAL or b.channel in EXTERNAL:
+        if a.date and b.date and a.date != b.date:
+            new = a if a.date > b.date else b
+            return f"верим более позднему источнику: {new.code} от {new.date} (правило для внешних источников)"
+        return "не решено: источники одной даты"
+    if ta.code == tb.code:
+        return f"не решено: расходятся сообщения одного источника ({a.code} и {b.code}), более глубокого источника нет"
+    same = (a.date == b.date) or ta.same_meeting_as == tb.code or tb.same_meeting_as == ta.code
+    if not same:
+        later = ta if (ta.date or dt.date.min) > (tb.date or dt.date.min) else tb
+        if later.live_contact:
+            return None
+    if da == db_:
+        return f"не решено: источники одной глубины ({a.channel}), более глубокого нет"
+    deep, shallow = (a, b) if da > db_ else (b, a)
+    return f"верим {deep.code}: {deep.channel} глубже, чем {shallow.channel} ({shallow.code}); расхождение показано"
+
+
 def check_done(s: Session, ev: Event, org_ids) -> list[int]:
     """Отдельный шаг: какие открытые обещания, ожидания и просьбы клиента закрывает это событие.
     Закрытие засчитываем, только если фраза-доказательство есть в тексте события."""
@@ -461,7 +498,17 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
         for f in s.scalars(select(Fact).where(Fact.org_id.in_(org_ids), Fact.kind.in_(list(DONE_KINDS)), Fact.done.is_(False)).order_by(Fact.id))
         if not f.superseded_by and f.event_code != ev.code and not f.event_code.startswith(ev.code + ".")
     ]
-    if not open_items:
+    deep_enough = ev.depth >= 3 and not ev.internal and ev.channel not in EXTERNAL
+    unconf = (
+        [
+            f
+            for f in s.scalars(select(Fact).where(Fact.org_id.in_(org_ids), Fact.confirmed.is_(False)).order_by(Fact.id))
+            if not f.superseded_by and f.event_code.split(".")[0] != ev.code and CHANNEL_DEPTH.get(f.channel, 0) < ev.depth
+        ]
+        if deep_enough
+        else []
+    )
+    if not open_items and not unconf:
         return []
     orgs = {o.id: o.name for o in s.scalars(select(Org).where(Org.id.in_(org_ids)))}
     lines = [
@@ -470,8 +517,13 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
         + f" · записано в {f.event_code} {f.date or ''}"
         for f in open_items
     ]
+    ulines = [f"- fact_id {f.id} · {orgs.get(f.org_id, '')} · {f.text}{' — ' + f.value if f.value else ''} · {f.channel} {f.event_code} {f.date or ''}" for f in unconf]
     payload = event_payload(s, ev)
-    user = "ОТКРЫТЫЕ ОБЯЗАТЕЛЬСТВА:\n" + "\n".join(lines) + "\n\nСОБЫТИЕ:\n" + payload
+    user = (
+        "ОТКРЫТЫЕ ОБЯЗАТЕЛЬСТВА:\n" + ("\n".join(lines) or "(нет)")
+        + "\n\nНЕПОДТВЕРЖДЁННЫЕ ФАКТЫ (из голосовых и записок):\n" + ("\n".join(ulines) or "(нет)")
+        + "\n\nСОБЫТИЕ:\n" + payload
+    )
     try:
         data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL_FAST)
     except Exception as e:  # noqa: BLE001 — проверка обещаний не должна ронять разбор события
@@ -488,6 +540,16 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
             continue
         msg = (d.get("msg") or "").strip()
         f.done, f.done_event, f.done_quote = True, (msg if msg in kids else ev.code), quote[:300]
+        out.append(f.org_id)
+    by_u = {f.id: f for f in unconf}
+    for d in data.get("confirmed") or []:
+        f = by_u.get(_int(d.get("fact_id")))
+        quote = (d.get("quote") or "").strip()
+        if f is None or not _quote_in(quote, payload):
+            log.info("подтверждение %s: пропущено %s", ev.code, d)
+            continue
+        msg = (d.get("msg") or "").strip()
+        f.confirmed, f.confirmed_by, f.confirmed_quote = True, (msg if msg in kids else ev.code), quote[:300]
         out.append(f.org_id)
     s.commit()
     return out
@@ -764,23 +826,13 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
 
     # выполнение обещаний отмечает отдельный шаг check_done — с фразой-доказательством из события
 
+    pending_conflicts = []
     for c in d.get("conflicts") or []:
         target = refs.get(c.get("about") or "")
         oid = None
         if target:
             oid = target[1].id if target[0] == "org" else getattr(target[1], "org_id", None)
-        s.add(
-            Conflict(
-                org_id=oid,
-                subject=c.get("subject") or "",
-                version_a=c.get("other_version") or "",
-                event_a=c.get("other_event") or "",
-                version_b=c.get("this_version") or "",
-                event_b=ev.code,
-                verdict=c.get("verdict") or "не решено",
-                date=date,
-            )
-        )
+        pending_conflicts.append((oid, c))
         touch(oid)
 
     for lk in d.get("links") or []:
@@ -803,6 +855,28 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
             if other.depth > ev.depth and set(other.org_ids or []) & set(touched) and other.live_contact:
                 ev.same_meeting_as, ev.live_contact = other.code, False
                 break
+    s.flush()
+    kids = {m.code for m in s.scalars(select(Event).where(Event.parent == ev.code))}
+    for oid, c in pending_conflicts:
+        code_b = (c.get("this_event") or "").strip()
+        code_b = code_b if code_b in kids else ev.code
+        code_a = (c.get("other_event") or "").strip()
+        verdict = judge_conflict(s, code_a, code_b)
+        if verdict is None:
+            log.info("%s: «%s» — изменение со временем, не противоречие", ev.code, c.get("subject"))
+            continue
+        s.add(
+            Conflict(
+                org_id=oid,
+                subject=c.get("subject") or "",
+                version_a=c.get("other_version") or "",
+                event_a=code_a,
+                version_b=c.get("this_version") or "",
+                event_b=code_b,
+                verdict=verdict,
+                date=date,
+            )
+        )
     for oid in floor_stages(s):
         touch(oid)
     s.commit()
