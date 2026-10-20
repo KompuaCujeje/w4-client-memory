@@ -203,6 +203,14 @@ def person_card_json(s: Session, p: Person) -> dict:
         elif other_type == "org" and s.get(Org, int(other)):
             label = s.get(Org, int(other)).name
         links.append({"kind": lk.kind, "with": label, "event": lk.event_code, "quote": lk.quote})
+    # общий круг: люди других организаций, которые состоят там же (совет ассоциации и т. п.)
+    from .db import Job
+
+    for j in p.jobs:
+        for other in s.scalars(select(Job).where(Job.org_id == j.org_id, Job.person_id != p.id)):
+            theirs = [x.org.name for x in other.person.jobs if x.org_id != j.org_id]
+            if theirs and any(w in (j.role or "").lower() for w in ("член", "председатель совета")):
+                links.append({"kind": f"тоже в «{j.org.name}» ({other.role})", "with": f"{other.person.name} ({', '.join(theirs)})", "event": other.event_code, "quote": ""})
     contacts = []
     for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date)):
         text = person_key(e.text + " " + e.summary + " " + e.author)
