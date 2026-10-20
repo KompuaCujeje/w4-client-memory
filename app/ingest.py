@@ -525,7 +525,8 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
         + "\n\nСОБЫТИЕ:\n" + payload
     )
     try:
-        data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL_FAST)
+        # подтверждение по смыслу быстрая модель пропускала — когда есть что подтверждать, спрашиваем основную
+        data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL if unconf else config.LLM_MODEL_FAST)
     except Exception as e:  # noqa: BLE001 — проверка обещаний не должна ронять разбор события
         log.warning("проверка обещаний %s: %s", ev.code, e)
         return []
