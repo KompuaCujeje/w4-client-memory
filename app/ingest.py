@@ -557,7 +557,9 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
     )
     try:
         # подтверждение по смыслу быстрая модель пропускала — когда есть что подтверждать, спрашиваем основную
-        data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL if unconf else config.LLM_MODEL_FAST)
+        # быстрая модель путалась: подтверждения по смыслу и записки менеджера («отдать Косте на оценку» ≠ «отправили оценку»)
+        strong = bool(unconf) or ev.channel in ("записка", "голосовая") or ev.internal
+        data = llm.chat_json(prompts.DONE_SYSTEM, user, model=config.LLM_MODEL if strong else config.LLM_MODEL_FAST)
     except Exception as e:  # noqa: BLE001 — проверка обещаний не должна ронять разбор события
         log.warning("проверка обещаний %s: %s", ev.code, e)
         return []
