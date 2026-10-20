@@ -377,6 +377,45 @@ def reset(code: str = Form("")):
     return RedirectResponse("/", status_code=303)
 
 
+@router.get("/cleanup", response_class=HTMLResponse)
+def cleanup(request: Request):
+    """Что сделано со старой таблицей при загрузке: склеенные написания, дубли сделок, пропуски дат, причины закрытия. Без ИИ."""
+    with session() as s:
+        projs = list(s.scalars(select(Project).where(Project.source.like("%#%"))))
+        projs.sort(key=lambda p: (p.source.split("#")[0], int(p.source.split("#")[1]) if p.source.split("#")[1].isdigit() else 0))
+        raw = {}
+        for e in s.scalars(select(Event).where(Event.code.in_([p.source for p in projs]))):
+            m = re.search(r"клиент:\s*([^|]+)", e.text or "")
+            raw[e.code] = m.group(1).strip() if m else ""
+        by_id = {p.id: p for p in projs}
+        rows = []
+        for p in projs:
+            dup = by_id.get(p.duplicate_of) if p.duplicate_of else None
+            rows.append({"p": p, "raw": raw.get(p.source, ""), "dup": dup, "missing": [] if dup else analytics.missing_dates(p)})
+        groups = {}
+        for r in rows:
+            groups.setdefault(r["p"].org_id, []).append(r)
+        spellings = [
+            {"org": g[0]["p"].org, "rows": g, "deals": len({r["p"].product for r in g})}
+            for g in groups.values()
+            if len({r["raw"] for r in g}) > 1
+        ]
+        mgr = {}
+        for r in rows:
+            if not r["dup"]:
+                m = mgr.setdefault(r["p"].manager, {"deals": 0, "missing": 0})
+                m["deals"] += 1
+                m["missing"] += len(r["missing"])
+        summary = {
+            "rows": len(rows),
+            "orgs": len(groups),
+            "deals": sum(1 for r in rows if not r["dup"]),
+            "dups": sum(1 for r in rows if r["dup"]),
+            "missing": sum(len(r["missing"]) for r in rows),
+        }
+        return render(request, "cleanup.html", rows=rows, spellings=spellings, mgr=mgr, summary=summary)
+
+
 @router.post("/recheck")
 def recheck(code: str = Form("")):
     """Повторная сверка обещаний и подтверждений (≈1 ₽ за событие), по коду сброса."""

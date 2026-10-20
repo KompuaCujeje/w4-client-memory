@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Чистка старой таблицы</h1>
+<p class="muted">Что программа сделала со старой таблицей при загрузке — по правилам словаря, без ИИ. Каждая строка таблицы открывается по коду (например, E00#25).</p>
+
+<div class="grid g3">
+  <div class="card"><div class="muted small">Строк в таблице</div><div class="stat">{{ summary.rows }}</div></div>
+  <div class="card"><div class="muted small">Организаций после склейки написаний</div><div class="stat">{{ summary.orgs }}</div></div>
+  <div class="card"><div class="muted small">Сделок после снятия дублей</div><div class="stat">{{ summary.deals }}</div><div class="small muted">дублей снято: {{ summary.dups }} · пропущенных дат этапов: {{ summary.missing }}</div></div>
+</div>
+
+<h2>1. Разные написания одной организации — склеены</h2>
+<p class="small muted">Правило: одно и то же название с другими кавычками, дефисом или пробелом — одна организация. Разные продукты у неё — разные сделки.</p>
+<table><tr><th>Организация</th><th>Как написано в таблице</th><th>Сделок</th></tr>
+{% for g in spellings %}
+<tr><td><a href="/org/{{ g.org.id }}">{{ g.org.name }}</a></td>
+<td>{% for r in g.rows %}«{{ r.raw }}» — <a class="src" href="{{ code_href(r.p.source) }}">{{ r.p.source }}</a> ({{ r.p.product }}, {{ r.p.manager }}){% if r.dup %} <span class="tag dup">дубль</span>{% endif %}<br>{% endfor %}</td>
+<td>{{ g.deals }}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">Нет.</td></tr>{% endfor %}
+</table>
+
+<h2>2. Дубли сделок — посчитаны один раз</h2>
+<p class="small muted">Правило словаря: одна организация и один продукт — одна сделка, даже если её завели двое. Сделка считается за тем, кто завёл её первым.</p>
+<table><tr><th>Строка-дубль</th><th>Осталась сделкой</th><th>Почему</th></tr>
+{% for r in rows if r.dup %}
+<tr><td><a class="src" href="{{ code_href(r.p.source) }}">{{ r.p.source }}</a> «{{ r.raw }}», {{ r.p.product }}, {{ r.p.manager }}, создана {{ r.p.created }}</td>
+<td><a class="src" href="{{ code_href(r.dup.source) }}">{{ r.dup.source }}</a> <a href="/org/{{ r.dup.org_id }}">{{ r.dup.org.name }}</a>, {{ r.dup.manager }}, создана {{ r.dup.created }}</td>
+<td>та же организация и тот же продукт; {{ r.dup.manager }} завёл раньше — сделка за ним</td></tr>
+{% else %}<tr><td colspan="3" class="muted">Дублей нет.</td></tr>{% endfor %}
+</table>
+
+<h2>3. Пропущенные даты этапов</h2>
+<p class="small muted">Правило: у этапа, до которого лид дошёл (включая текущий), нет даты. Для «в работе» дата не ведётся. Пропуск даты не значит, что этап пропущен.</p>
+<table><tr><th>Менеджер</th><th>Сделок</th><th>Пропущенных дат</th></tr>
+{% for name, m in mgr.items() %}<tr><td>{{ name }}</td><td>{{ m.deals }}</td><td>{{ m.missing }}</td></tr>{% endfor %}
+</table>
+<table><tr><th>Строка</th><th>Клиент</th><th>Менеджер</th><th>Этап сейчас</th><th>Нет даты у этапов</th></tr>
+{% for r in rows if r.missing %}
+<tr><td><a class="src" href="{{ code_href(r.p.source) }}">{{ r.p.source }}</a></td><td><a href="/org/{{ r.p.org_id }}">{{ r.p.org.name }}</a></td><td>{{ r.p.manager }}</td><td>{{ r.p.stage }}</td><td>{{ r.missing|join(", ") }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>4. Закрытые без сделки — причина из комментария</h2>
+<table><tr><th>Строка</th><th>Клиент</th><th>Менеджер</th><th>Причина</th></tr>
+{% for r in rows if r.p.stage == CLOSED %}
+<tr><td><a class="src" href="{{ code_href(r.p.source) }}">{{ r.p.source }}</a></td><td><a href="/org/{{ r.p.org_id }}">{{ r.p.org.name }}</a></td><td>{{ r.p.manager }}</td><td>{{ r.p.close_reason or "не указана" }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>5. Вся таблица после чистки</h2>
+<table><tr><th>Строка</th><th>Как написано</th><th>Организация</th><th>Продукт</th><th>Менеджер</th><th>Этап</th><th>Создан</th><th></th></tr>
+{% for r in rows %}
+<tr><td><a class="src" href="{{ code_href(r.p.source) }}">{{ r.p.source }}</a></td><td>{{ r.raw }}</td><td><a href="/org/{{ r.p.org_id }}">{{ r.p.org.name }}</a></td><td>{{ r.p.product }}</td><td>{{ r.p.manager }}</td><td>{{ r.p.stage }}</td><td>{{ r.p.created }}</td>
+<td>{% if r.dup %}<span class="tag dup">дубль {{ r.dup.source }}</span>{% elif r.raw and r.raw != r.p.org.name %}<span class="tag">склеено</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% endblock %}
