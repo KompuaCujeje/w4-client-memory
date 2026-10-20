@@ -918,8 +918,10 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
     for oid in floor_stages(s):
         touch(oid)
     if ev.channel in EXTERNAL:
-        for oid in attach_people_orgs(s, list(s.scalars(select(Fact).where(Fact.event_code.like(ev.code + "%"))))):
+        new_facts = list(s.scalars(select(Fact).where(Fact.event_code.like(ev.code + "%"))))
+        for oid in attach_people_orgs(s, new_facts):
             touch(oid)
+        roles_from_registry(s, new_facts)
     s.commit()
     return touched
 
@@ -936,6 +938,29 @@ def _role_before(text: str, start: int) -> str:
     return seg.strip(" ,—-")
 
 
+def _good_role(role: str) -> bool:
+    r = role.lower()
+    return any(w in r for w in ROLE_WORDS) and len(role.split()) <= 6 and not re.search(r"покинул|назначен|ушёл|ушел|стал|уволен", r)
+
+
+DIRECTOR_RE = re.compile(r"(генеральный директор|директор|руководитель)\s*[—–-]\s*([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2})", re.I)
+
+
+def roles_from_registry(s: Session, facts) -> int:
+    """Выписка: «Генеральный директор — Шведов Олег Викторович» → роль у этого человека в этой организации."""
+    n = 0
+    for f in facts:
+        if f.channel not in EXTERNAL or not f.org_id:
+            continue
+        for m in DIRECTOR_RE.finditer(f.text or ""):
+            role, name = m.group(1).lower(), m.group(2)
+            for j in s.scalars(select(Job).where(Job.org_id == f.org_id)):
+                if same_person(j.person.name, name) or any(same_person(a, name) for a in j.person.aliases or [] if len(a.split()) > 1):
+                    if not j.role or "так назван" in j.role or not _good_role(j.role):
+                        j.role, n = role, n + 1
+    return n
+
+
 def attach_people_orgs(s: Session, facts) -> list[int]:
     """Внешний источник называет человека и его компанию («Ольга Мельникова — председатель совета директоров «Сибагроресурс»»):
     у человека должна быть связь с организацией (Б1). Без ИИ: по кавычкам и словам должности."""
@@ -948,9 +973,11 @@ def attach_people_orgs(s: Session, facts) -> list[int]:
             continue
         for m in re.finditer(r"«([^«»]+(?:«[^«»]+»[^«»]*)?)»", f.text or ""):
             role = _role_before(f.text, m.start())
-            if not any(w in role.lower() for w in ROLE_WORDS):
+            if not _good_role(role):
                 continue
             raw = m.group(1).strip()
+            if not raw[:1].isupper() or re.search(r"(рабоч\w+ групп\w*|ЖК|проект\w*)\s*$", (f.text or "")[: m.start()]):
+                continue  # «цифровое поле и агротехнологии» — рабочая группа, не организация
             before = (f.text or "")[: m.start()].lower()
             name = f"Ассоциация «{raw}»" if re.search(r"ассоциаци\w*\s*$", before) else raw
             org = _known_org(s, org_key(name))
@@ -1036,7 +1063,22 @@ def repair_registry(s: Session) -> dict:
             s.delete(p)
             rep["junk"] += 1
     s.flush()
+    for o in list(s.scalars(select(Org))):
+        if o.name and not o.name[:1].isupper() and o.first_event[:1] == "S":
+            for j in list(s.scalars(select(Job).where(Job.org_id == o.id))):
+                s.delete(j)
+            for e in s.scalars(select(Event).where(Event.parent == "")):
+                if o.id in (e.org_ids or []):
+                    e.org_ids = [x for x in e.org_ids if x != o.id]
+            s.flush()
+            s.delete(o)
+            rep["junk"] += 1
+    s.flush()
+    for j in s.scalars(select(Job)):
+        if j.role and not _good_role(j.role) and re.search(r"покинул|назначен|ушёл|ушел", j.role.lower()):
+            j.role = ""
     rep["attached"] = len(attach_people_orgs(s, list(s.scalars(select(Fact).where(Fact.person_id.is_not(None))))))
+    rep["roles"] = roles_from_registry(s, list(s.scalars(select(Fact))))
     for p in s.scalars(select(Person)):
         if not p.jobs and not p.note:
             p.note = "организация не названа"
