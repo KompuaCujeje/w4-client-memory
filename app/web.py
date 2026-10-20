@@ -377,6 +377,16 @@ def reset(code: str = Form("")):
     return RedirectResponse("/", status_code=303)
 
 
+@router.post("/recheck")
+def recheck(code: str = Form("")):
+    """Повторная сверка обещаний и подтверждений (≈1 ₽ за событие), по коду сброса."""
+    if not config.RESET_CODE or code != config.RESET_CODE:
+        return HTMLResponse("Выключено или код неверный", 403)
+    from .ingest import recheck_all
+
+    return JSONResponse({"events": recheck_all()})
+
+
 # ---------- граф (Г1, Г2) ----------
 
 

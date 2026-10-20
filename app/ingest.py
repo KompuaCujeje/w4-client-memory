@@ -487,6 +487,37 @@ def judge_conflict(s: Session, code_a: str, code_b: str) -> str | None:
     return f"верим {deep.code}: {deep.channel} глубже, чем {shallow.channel} ({shallow.code}); расхождение показано"
 
 
+def _before(f: Fact, ev: Event) -> bool:
+    """Факт записан раньше события (по дате, при равной дате — по порядку загрузки события)."""
+    if f.date and ev.date and f.date != ev.date:
+        return f.date < ev.date
+    src = f.event_code.split(".")[0]
+    return src < ev.code if src[:1] == ev.code[:1] else True
+
+
+def recheck_all() -> int:
+    """Повторная сверка обещаний и подтверждений по всем событиям по порядку — без нового разбора событий
+    (дешевле полной перезагрузки). Сначала снимает все отметки «выполнено» и «подтверждено»."""
+    n = 0
+    with session() as s:
+        for f in s.scalars(select(Fact)):
+            if f.done:
+                f.done, f.done_event, f.done_quote = False, "", ""
+            if f.confirmed_by:
+                f.confirmed, f.confirmed_by, f.confirmed_quote = False, "", ""
+        s.commit()
+        evs = list(s.scalars(select(Event).where(Event.parent == "", Event.status == "done", Event.channel != "таблица").order_by(Event.date, Event.id)))
+        for ev in evs:
+            check_done(s, ev, ev.org_ids or [])
+            n += 1
+        for o in s.scalars(select(Org)):
+            w = latest_wiki(s, o.id)
+            if w is not None:
+                w.text = commitments_sections(s, o.id, w.text)
+        s.commit()
+    return n
+
+
 def check_done(s: Session, ev: Event, org_ids) -> list[int]:
     """Отдельный шаг: какие открытые обещания, ожидания и просьбы клиента закрывает это событие.
     Закрытие засчитываем, только если фраза-доказательство есть в тексте события."""
@@ -496,14 +527,14 @@ def check_done(s: Session, ev: Event, org_ids) -> list[int]:
     open_items = [
         f
         for f in s.scalars(select(Fact).where(Fact.org_id.in_(org_ids), Fact.kind.in_(list(DONE_KINDS)), Fact.done.is_(False)).order_by(Fact.id))
-        if not f.superseded_by and f.event_code != ev.code and not f.event_code.startswith(ev.code + ".")
+        if not f.superseded_by and f.event_code != ev.code and not f.event_code.startswith(ev.code + ".") and _before(f, ev)
     ]
     deep_enough = ev.depth >= 3 and not ev.internal and ev.channel not in EXTERNAL
     unconf = (
         [
             f
             for f in s.scalars(select(Fact).where(Fact.org_id.in_(org_ids), Fact.confirmed.is_(False)).order_by(Fact.id))
-            if not f.superseded_by and f.event_code.split(".")[0] != ev.code and CHANNEL_DEPTH.get(f.channel, 0) < ev.depth
+            if not f.superseded_by and f.event_code.split(".")[0] != ev.code and CHANNEL_DEPTH.get(f.channel, 0) < ev.depth and _before(f, ev)
         ]
         if deep_enough
         else []
