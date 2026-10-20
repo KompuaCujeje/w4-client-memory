@@ -258,6 +258,7 @@ def fix_stages_on_start() -> None:
     def run() -> None:
         try:
             with session() as s:
+                log.info("починка базы: %s", repair_registry(s))
                 orgs = floor_stages(s)
                 s.commit()
                 log.info("вики: разделы обещаний пересобраны у %s клиентов", fix_wiki_sections(s))
@@ -495,18 +496,21 @@ def _before(f: Fact, ev: Event) -> bool:
     return src < ev.code if src[:1] == ev.code[:1] else True
 
 
-def recheck_all() -> int:
+def recheck_all(since: dt.date | None = None) -> int:
     """Повторная сверка обещаний и подтверждений по всем событиям по порядку — без нового разбора событий
     (дешевле полной перезагрузки). Сначала снимает все отметки «выполнено» и «подтверждено»."""
     n = 0
     with session() as s:
+        evs = list(s.scalars(select(Event).where(Event.parent == "", Event.status == "done", Event.channel != "таблица").order_by(Event.date, Event.id)))
+        if since:
+            evs = [e for e in evs if e.date and e.date >= since]
+        codes = {e.code for e in evs}
         for f in s.scalars(select(Fact)):
-            if f.done:
+            if f.done and f.done_event.split(".")[0] in codes:
                 f.done, f.done_event, f.done_quote = False, "", ""
-            if f.confirmed_by:
+            if f.confirmed_by and f.confirmed_by.split(".")[0] in codes:
                 f.confirmed, f.confirmed_by, f.confirmed_quote = False, "", ""
         s.commit()
-        evs = list(s.scalars(select(Event).where(Event.parent == "", Event.status == "done", Event.channel != "таблица").order_by(Event.date, Event.id)))
         for ev in evs:
             check_done(s, ev, ev.org_ids or [])
             n += 1
@@ -732,7 +736,7 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         name = " ".join(kept) if kept else name
         if not name or _is_ours(name):
             continue
-        if not any(w[:1].isupper() for w in name.split()):
+        if not name.split()[0][:1].isupper():
             # «директор», «финансистка» — роль без имени: не новый человек; если он один такой в организации — это он
             _oref = refs.get(p.get("org_ref") or "")
             if _oref and _oref[0] == "org":
@@ -769,10 +773,10 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
                 s.add(job)
                 s.flush()
                 s.refresh(person)
-            elif p.get("role") and not job.role:
+            elif p.get("role") and (not job.role or ("так назван" in job.role and "так назван" not in p["role"])):
                 job.role = p["role"]
-            if p.get("left_org"):
-                job.current, job.until = False, date
+            if p.get("left_org") and job.current:
+                job.current, job.until, job.until_event = False, date, ev.code
             if (person.note or "").startswith("организация не названа"):
                 person.note = ""
             touch(org.id)
@@ -913,8 +917,158 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         )
     for oid in floor_stages(s):
         touch(oid)
+    if ev.channel in EXTERNAL:
+        for oid in attach_people_orgs(s, list(s.scalars(select(Fact).where(Fact.event_code.like(ev.code + "%"))))):
+            touch(oid)
     s.commit()
     return touched
+
+
+ROLE_WORDS = ("директор", "председатель", "член совета", "руководител", "основател", "собственник", "совладел", "учредител", "участник", "менеджер", "сотрудник")
+
+
+def _role_before(text: str, start: int) -> str:
+    seg = text[:start]
+    for sep in (" — ", ", ", " и ", "; "):
+        if sep in seg:
+            seg = seg.rsplit(sep, 1)[1]
+    seg = re.sub(r"\s+(ассоциации|ассоциация|компании|холдинга|сети)\s*$", "", seg.strip())
+    return seg.strip(" ,—-")
+
+
+def attach_people_orgs(s: Session, facts) -> list[int]:
+    """Внешний источник называет человека и его компанию («Ольга Мельникова — председатель совета директоров «Сибагроресурс»»):
+    у человека должна быть связь с организацией (Б1). Без ИИ: по кавычкам и словам должности."""
+    touched: list[int] = []
+    for f in facts:
+        if not f.person_id or f.channel not in EXTERNAL or f.kind not in ("owners", "other", "business", "personal"):
+            continue
+        person = s.get(Person, f.person_id)
+        if person is None:
+            continue
+        for m in re.finditer(r"«([^«»]+(?:«[^«»]+»[^«»]*)?)»", f.text or ""):
+            role = _role_before(f.text, m.start())
+            if not any(w in role.lower() for w in ROLE_WORDS):
+                continue
+            raw = m.group(1).strip()
+            before = (f.text or "")[: m.start()].lower()
+            name = f"Ассоциация «{raw}»" if re.search(r"ассоциаци\w*\s*$", before) else raw
+            org = _known_org(s, org_key(name))
+            if org is None:
+                org = Org(name=name, aliases=[], first_event=f.event_code.split(".")[0])
+                s.add(org)
+                s.flush()
+            job = next((j for j in person.jobs if j.org_id == org.id), None)
+            if job is None:
+                s.add(Job(person_id=person.id, org_id=org.id, role=role, since=f.date, event_code=f.event_code))
+                s.flush()
+                s.refresh(person)
+            elif not job.role or "так назван" in job.role:
+                job.role = role
+            ev = s.scalar(select(Event).where(Event.code == f.event_code.split(".")[0]))
+            if ev is not None and org.id not in (ev.org_ids or []):
+                ev.org_ids = list(ev.org_ids or []) + [org.id]
+            if (person.note or "").startswith("организация не названа"):
+                person.note = ""
+            touched.append(org.id)
+    return touched
+
+
+def _merge_person(s: Session, keep: Person, gone: Person) -> None:
+    from .names import _name_order
+
+    natural = " ".join(_name_order(gone.name.split()))
+    if len(natural.split()) > len(keep.name.split()):
+        _add_aliases(keep, [keep.name])
+        keep.name = natural
+    _add_aliases(keep, [gone.name] + list(gone.aliases or []))
+    for j in list(gone.jobs):
+        mine = next((x for x in keep.jobs if x.org_id == j.org_id), None)
+        if mine is None:
+            j.person_id = keep.id
+        else:
+            if (not mine.role or "так назван" in mine.role) and j.role:
+                mine.role = j.role
+            if j.since and (not mine.since or j.since < mine.since):
+                mine.since, mine.event_code = j.since, j.event_code
+            s.delete(j)
+    for f in s.scalars(select(Fact).where(Fact.person_id == gone.id)):
+        f.person_id = keep.id
+    for lk in s.scalars(select(Link)):
+        if lk.a_type == "person" and lk.a_id == str(gone.id):
+            lk.a_id = str(keep.id)
+        if lk.b_type == "person" and lk.b_id == str(gone.id):
+            lk.b_id = str(keep.id)
+    s.flush()
+    s.delete(gone)
+    s.flush()
+
+
+def repair_registry(s: Session) -> dict:
+    """Починка базы без ИИ (идемпотентно, при каждом запуске): склеить одного человека под разными написаниями,
+    убрать «людей» без имени («отец Павла Гордеева»), привязать людей из внешних источников к их компаниям,
+    вернуть откатившийся назад этап, снять ошибочную замену вводных, проставить событие ухода."""
+    rep = {"merged": 0, "junk": 0, "attached": 0, "stages": 0, "unsuperseded": 0}
+    people = list(s.scalars(select(Person).order_by(Person.id)))
+    gone: set[int] = set()
+    for i, a in enumerate(people):
+        if a.id in gone:
+            continue
+        for b in people[i + 1 :]:
+            if b.id in gone:
+                continue
+            names_a = [a.name] + [x for x in a.aliases or [] if len(x.split()) > 1]
+            names_b = [b.name] + [x for x in b.aliases or [] if len(x.split()) > 1]
+            if any(same_person(x, y) for x in names_a for y in names_b):
+                _merge_person(s, a, b)
+                gone.add(b.id)
+                rep["merged"] += 1
+    for p in list(s.scalars(select(Person))):
+        if p.name and not p.name.split()[0][:1].isupper():
+            for f in s.scalars(select(Fact).where(Fact.person_id == p.id)):
+                f.person_id = None
+            for lk in list(s.scalars(select(Link))):
+                if (lk.a_type == "person" and lk.a_id == str(p.id)) or (lk.b_type == "person" and lk.b_id == str(p.id)):
+                    s.delete(lk)
+            for j in list(p.jobs):
+                s.delete(j)
+            s.flush()
+            s.delete(p)
+            rep["junk"] += 1
+    s.flush()
+    rep["attached"] = len(attach_people_orgs(s, list(s.scalars(select(Fact).where(Fact.person_id.is_not(None))))))
+    for p in s.scalars(select(Person)):
+        if not p.jobs and not p.note:
+            p.note = "организация не названа"
+    for proj in s.scalars(select(Project)):
+        hist = list(proj.stage_history or [])
+        kept, top = [], -1
+        for h in hist:
+            st = h.get("stage")
+            if st in STAGES and STAGES.index(st) < top:
+                continue
+            if top == 99 and st != CLOSED:
+                continue
+            kept.append(h)
+            top = 99 if st == CLOSED else max(top, STAGES.index(st) if st in STAGES else top)
+        if len(kept) != len(hist):
+            proj.stage_history, proj.stage = kept, kept[-1]["stage"]
+            rep["stages"] += 1
+    ext = {e.code for e in s.scalars(select(Event).where(Event.channel.in_(list(EXTERNAL))))}
+    for f in s.scalars(select(Fact).where(Fact.superseded_by != "")):
+        by = [g for g in s.scalars(select(Fact).where(Fact.kind == f.kind, Fact.org_id == f.org_id)) if g.event_code.split(".")[0] == f.superseded_by.split(".")[0]]
+        if f.superseded_by.split(".")[0] in ext or (by and all((g.project_id or f.project_id) and g.project_id != f.project_id for g in by)):
+            f.superseded_by = ""
+            rep["unsuperseded"] += 1
+    for j in s.scalars(select(Job).where(Job.current.is_(False))):
+        if j.until_event:
+            continue
+        evs = [s.scalar(select(Event).where(Event.code == lk.event_code.split(".")[0])) for lk in s.scalars(select(Link).where(Link.a_type == "person", Link.a_id == str(j.person_id), Link.kind == "работал в", Link.b_type == "org", Link.b_id == str(j.org_id)))]
+        evs = sorted([e for e in evs if e and e.date], key=lambda e: e.date)
+        if evs:
+            j.until_event, j.until = evs[0].code, evs[0].date
+    s.commit()
+    return rep
 
 
 def floor_stages(s: Session) -> list[int]:
@@ -945,6 +1099,10 @@ def _manager_from_author(author: str) -> str:
 
 
 def _set_stage(proj: Project, stage: str, date: dt.date, code: str) -> None:
+    if proj.stage == CLOSED and stage != CLOSED:
+        return  # новый заказ после закрытия — новый проект (Б3)
+    if stage in STAGES and proj.stage in STAGES and STAGES.index(stage) < STAGES.index(proj.stage):
+        return  # этап назад не двигаем: «на паузе» — признак сделки, этап при паузе не меняется
     sd = dict(proj.stage_dates or {})
     hist = list(proj.stage_history or [])
     if stage not in sd:
@@ -961,9 +1119,13 @@ def _supersede(s: Session, fact: Fact, ev: Event) -> None:
     """Б2: новое значение суммы/срока/объёма заменяет старое; при той же дате глубокий источник побеждает."""
     if fact.kind not in VALUE_KINDS or not (fact.project_id or fact.org_id):
         return
+    if fact.channel in EXTERNAL:
+        return  # кредит из новости — не бюджет нашего проекта
     q = select(Fact).where(Fact.kind == fact.kind, Fact.id != fact.id, Fact.superseded_by == "")
     q = q.where(Fact.project_id == fact.project_id) if fact.project_id else q.where(Fact.org_id == fact.org_id)
     for old in s.scalars(q):
+        if (old.project_id or fact.project_id) and old.project_id != fact.project_id:
+            continue  # бюджет другого проекта той же организации
         if old.event_code.split(".")[0] == fact.event_code.split(".")[0]:
             continue  # несколько пунктов из одного события не заменяют друг друга
         if old.date and fact.date and old.date == fact.date and CHANNEL_DEPTH.get(old.channel, 0) > CHANNEL_DEPTH.get(fact.channel, 0):

@@ -121,6 +121,7 @@ class Job(Base):
     until: Mapped[dt.date | None] = mapped_column(Date)
     current: Mapped[bool] = mapped_column(Boolean, default=True)
     event_code: Mapped[str] = mapped_column(String(32), default="")
+    until_event: Mapped[str] = mapped_column(String(32), default="")  # событие, из которого известно, что ушёл
     person: Mapped[Person] = relationship(back_populates="jobs")
     org: Mapped[Org] = relationship()
 
@@ -222,6 +223,9 @@ def init_db() -> None:
         if col not in fcols:
             with engine.begin() as con:
                 con.execute(text(f"ALTER TABLE facts ADD COLUMN {col} {kind} DEFAULT ''"))
+    if "until_event" not in {c["name"] for c in inspect(engine).get_columns("jobs")}:
+        with engine.begin() as con:
+            con.execute(text("ALTER TABLE jobs ADD COLUMN until_event VARCHAR(32) DEFAULT ''"))
 
 
 def reset_db() -> None:

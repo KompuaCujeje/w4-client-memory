@@ -42,9 +42,16 @@ def person_key(name: str) -> str:
     return re.sub(r"\s+", " ", norm(name))
 
 
+def _name_order(words: list[str]) -> list[str]:
+    """«Белов Игорь Семёнович» (как в выписке) → «Игорь Семёнович Белов»: отчество вторым словом — значит фамилия впереди."""
+    if len(words) == 3 and _patronymic(words[2]) and not _patronymic(words[1]):
+        return [words[1], words[2], words[0]]
+    return words
+
+
 def same_person(a: str, b: str) -> bool:
-    """«Елена Власова» = «Е. Власова» = «Елена Павловна Власова». Разные люди с одним именем — не склеиваем."""
-    ka, kb = person_key(a).split(), person_key(b).split()
+    """«Елена Власова» = «Е. Власова» = «Елена Павловна Власова» = «Власова Елена Павловна». Разные люди с одним именем — не склеиваем."""
+    ka, kb = _name_order(person_key(a).split()), _name_order(person_key(b).split())
     if not ka or not kb:
         return False
     if ka == kb:

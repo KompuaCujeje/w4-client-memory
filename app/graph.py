@@ -93,7 +93,8 @@ def build(s: Session, include_table: bool = False) -> Graph:
         if not wanted(j.org_id):
             continue
         a, b = _person(g, j.person), _org(g, j.org)
-        g.edge(a, b, "работает в" if j.current else "работал в", j.event_code)
+        member = any(w in (j.role or "").lower() for w in ("член совета", "председатель совета", "член ассоциации"))
+        g.edge(a, b, "состоит в" if member else ("работает в" if j.current else "работал в"), j.event_code)
 
     for p in s.scalars(select(Project).where(Project.duplicate_of.is_(None))):
         if not wanted(p.org_id):
@@ -134,7 +135,7 @@ def hidden_links(s: Session, g: Graph) -> list[dict]:
     out = []
     person_orgs: dict[str, list[tuple[str, str, str]]] = {}
     for e in g.edges:
-        if e["kind"] in ("работает в", "работал в") and e["from"].startswith("person"):
+        if e["kind"] in ("работает в", "работал в", "состоит в") and e["from"].startswith("person"):
             person_orgs.setdefault(e["from"], []).append((e["to"], e["kind"], ",".join(e["events"])))
     label = {k: v["label"] for k, v in g.nodes.items()}
     for e in g.edges:
@@ -151,6 +152,29 @@ def hidden_links(s: Session, g: Graph) -> list[dict]:
                                 "events": sorted(set(e["events"] + x[2].split(",") + y[2].split(","))),
                             }
                         )
+    # люди разных клиентов, которые состоят в одной третьей организации (совет ассоциации и т. п.)
+    members: dict[str, list[tuple[str, str]]] = {}
+    for p, orgs in person_orgs.items():
+        for o, k, ev in orgs:
+            if k == "состоит в":
+                members.setdefault(o, []).append((p, ev))
+    for x, ps in members.items():
+        for i in range(len(ps)):
+            for j in range(i + 1, len(ps)):
+                a, b = ps[i][0], ps[j][0]
+                wa = [o for o, k, _ in person_orgs.get(a, []) if k != "состоит в" and o != x]
+                wb = [o for o, k, _ in person_orgs.get(b, []) if k != "состоит в" and o != x]
+                for oa in wa:
+                    for ob in wb:
+                        if oa != ob:
+                            evs = {c for _, ev in (ps[i], ps[j]) for c in ev.split(",")}
+                            evs |= {c for o, _, ev in person_orgs.get(a, []) + person_orgs.get(b, []) if o in (oa, ob) for c in ev.split(",")}
+                            out.append(
+                                {
+                                    "text": f"{label[a]} ({label[oa]}) и {label[b]} ({label[ob]}) — оба в {label[x] if "«" in label[x] else "«" + label[x] + "»"}: общий круг, повод для знакомства «{label[oa]}» и «{label[ob]}»",
+                                    "events": sorted(c for c in evs if c),
+                                }
+                            )
     for p, orgs in person_orgs.items():
         names = {o for o, _, _ in orgs}
         if len(names) > 1:

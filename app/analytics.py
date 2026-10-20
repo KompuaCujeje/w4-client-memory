@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .db import CLOSED, MANAGERS, OPEN_STAGES, STAGES, Event, Fact, Project
+from .db import CLOSED, MANAGERS, OPEN_STAGES, STAGES, Event, Fact, Job, Project
 
 STALE_DAYS = 42
 
@@ -17,6 +17,17 @@ def as_of(s: Session) -> dt.date:
     """Дата вопроса = дата последнего загруженного события."""
     d = s.scalar(select(func.max(Event.date)).where(Event.parent == "", Event.status == "done"))
     return d or dt.date.today()
+
+
+@dataclass
+class LeaderRisk:
+    """Риск без отдельного факта: ушёл директор/собственник (по связи человека с организацией)."""
+
+    id: int
+    date: dt.date
+    event_code: str
+    text: str
+    superseded_by: str = ""
 
 
 @dataclass
@@ -64,6 +75,25 @@ def deal_state(s: Session, p: Project, today: dt.date | None = None) -> DealStat
                 cleared[f.id] = (moved[0].get("stage", ""), moved[0].get("event", ""))
             else:
                 risks.append(f)
+        # словарь: «сменился человек, принимающий решение» — риск с даты события, из которого это известно
+        start = (p.stage_history or [{}])[0].get("date", "")
+        for j in s.scalars(select(Job).where(Job.org_id == p.org_id, Job.current.is_(False))):
+            role = (j.role or "").lower()
+            if not j.until or not any(w in role for w in ("директор", "собственник", "руководител", "решени")):
+                continue
+            if str(j.until) < start or j.until > today:
+                continue
+            r = LeaderRisk(
+                id=-j.id,
+                date=j.until,
+                event_code=j.until_event or j.event_code,
+                text=f"сменился человек, принимающий решение: {j.person.name} ушёл",
+            )
+            moved = [h for h in (p.stage_history or [])[1:] if h.get("date", "") > str(j.until)]
+            if moved:
+                cleared[r.id] = (moved[0].get("stage", ""), moved[0].get("event", ""))
+            else:
+                risks.append(r)
     return DealState(p, last, last_ev, days, stale, risks, is_open, cleared)
 
 

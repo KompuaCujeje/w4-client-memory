@@ -417,13 +417,15 @@ def cleanup(request: Request):
 
 
 @router.post("/recheck")
-def recheck(code: str = Form("")):
+def recheck(code: str = Form(""), since: str = Form("")):
     """Повторная сверка обещаний и подтверждений (≈1 ₽ за событие), по коду сброса."""
     if not config.RESET_CODE or code != config.RESET_CODE:
         return HTMLResponse("Выключено или код неверный", 403)
     from .ingest import recheck_all
 
-    return JSONResponse({"events": recheck_all()})
+    from .ingest import parse_date
+
+    return JSONResponse({"events": recheck_all(parse_date(since) if since else None)})
 
 
 # ---------- граф (Г1, Г2) ----------
