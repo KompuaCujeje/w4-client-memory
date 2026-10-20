@@ -203,11 +203,10 @@ def person_card_json(s: Session, p: Person) -> dict:
         elif other_type == "org" and s.get(Org, int(other)):
             label = s.get(Org, int(other)).name
         links.append({"kind": lk.kind, "with": label, "event": lk.event_code, "quote": lk.quote})
-    org_ids = {j.org_id for j in p.jobs}
     contacts = []
     for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date)):
         text = person_key(e.text + " " + e.summary + " " + e.author)
-        if any(k and k in text for k in keys) or (set(e.org_ids or []) & org_ids and e.live_contact):
+        if any(k and k in text for k in keys):  # только события, где человек назван: на чужих встречах его не было
             contacts.append({"event": e.code, "date": str(e.date or ""), "channel": e.channel, "summary": e.summary, "live_contact": e.live_contact})
     return {"person": {"name": p.name, "aliases": p.aliases, "note": p.note}, "jobs": jobs, "facts": facts, "links": links, "contacts": contacts}
 

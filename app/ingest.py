@@ -917,6 +917,8 @@ def apply_extraction(s: Session, ev: Event, d: dict) -> list[int]:
         )
     for oid in floor_stages(s):
         touch(oid)
+    if ev.channel == "письмо":
+        roles_from_signatures(s, [ev])
     if ev.channel in EXTERNAL:
         new_facts = list(s.scalars(select(Fact).where(Fact.event_code.like(ev.code + "%"))))
         for oid in attach_people_orgs(s, new_facts):
@@ -958,6 +960,24 @@ def roles_from_registry(s: Session, facts) -> int:
                 if same_person(j.person.name, name) or any(same_person(a, name) for a in j.person.aliases or [] if len(a.split()) > 1):
                     if not j.role or "так назван" in j.role or not _good_role(j.role):
                         j.role, n = role, n + 1
+    return n
+
+
+SIGNATURE_RE = re.compile(r"^\s*([А-ЯЁ][а-яё]+(?:\s+(?:[А-ЯЁ][а-яё]+|[А-ЯЁ]\.)){1,2}),\s*([а-яё][а-яё -]{2,40}?)\s*$", re.M)
+
+
+def roles_from_signatures(s: Session, events) -> int:
+    """Подпись в письме клиента «Анна Римская, финансовый директор» — его должность (последняя подпись побеждает)."""
+    n = 0
+    for e in sorted(events, key=lambda x: (x.date or dt.date.min, x.id)):
+        if e.channel != "письмо":
+            continue
+        for m in SIGNATURE_RE.finditer(e.text or ""):
+            name, role = m.group(1), m.group(2).strip()
+            for j in s.scalars(select(Job).where(Job.org_id.in_(e.org_ids or [-1]))):
+                names = [j.person.name] + list(j.person.aliases or [])
+                if any(same_person(x, name) for x in names) and j.role != role:
+                    j.role, n = role, n + 1
     return n
 
 
@@ -1079,6 +1099,7 @@ def repair_registry(s: Session) -> dict:
             j.role = ""
     rep["attached"] = len(attach_people_orgs(s, list(s.scalars(select(Fact).where(Fact.person_id.is_not(None))))))
     rep["roles"] = roles_from_registry(s, list(s.scalars(select(Fact))))
+    rep["roles"] += roles_from_signatures(s, list(s.scalars(select(Event).where(Event.parent == "", Event.status == "done"))))
     for p in s.scalars(select(Person)):
         if not p.jobs and not p.note:
             p.note = "организация не названа"
