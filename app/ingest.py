@@ -260,6 +260,7 @@ def fix_stages_on_start() -> None:
             with session() as s:
                 orgs = floor_stages(s)
                 s.commit()
+                log.info("вики: разделы обещаний пересобраны у %s клиентов", fix_wiki_sections(s))
                 for oid in dict.fromkeys(orgs):
                     evs = [e for e in s.scalars(select(Event).where(Event.parent == "", Event.status == "done").order_by(Event.date.desc(), Event.id.desc())) if oid in (e.org_ids or [])]
                     if evs:
@@ -939,12 +940,69 @@ def rewrite_wiki(s: Session, org_id: int, ev: Event) -> None:
         Wiki(
             org_id=org_id,
             version=(prev.version + 1) if prev else 1,
-            text=_clean(s, data.get("text") or ""),
+            text=commitments_sections(s, org_id, _clean(s, data.get("text") or "")),
             changes=_clean(s, data.get("changes") or f"событие [{ev.code}]"),
             event_code=ev.code,
         )
     )
     s.commit()
+
+
+COMMIT_SECTIONS = [
+    ("Договорённости и обещания", "promise", "Мы обещали"),
+    ("Ждём от клиента", "waiting", ""),
+    ("Просьбы клиента", "request", ""),
+]
+
+
+def commitments_sections(s: Session, org_id: int, text: str) -> str:
+    """Разделы про обещания, ожидания и просьбы вики собирает код из фактов, а не ИИ:
+    у ИИ «пришлите договор» попадало в «Ждём от клиента», а задача — в «Просьбы»."""
+    names = {n for n, _, _ in COMMIT_SECTIONS}
+    out, skip = [], False
+    for line in (text or "").splitlines():
+        m = re.match(r"^#{2,3}\s*(.+?)\s*$", line)
+        if m:
+            skip = m.group(1) in names
+            if skip:
+                continue
+        if not skip:
+            out.append(line)
+    blocks = []
+    for title, kind, _ in COMMIT_SECTIONS:
+        items = [f for f in s.scalars(select(Fact).where(Fact.org_id == org_id, Fact.kind == kind).order_by(Fact.date, Fact.id)) if not f.superseded_by]
+        if not items:
+            continue
+        lines = [f"## {title}"]
+        for f in items:
+            v = f.value or ""
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):  # срок датой — пишем по-русски, если в тексте его нет
+                v = "" if re.search(r"\d", f.text) else "срок " + ".".join(reversed(v.split("-")))
+            tail = f" — {v}" if v and v not in f.text else ""
+            status = f" — выполнено [{f.done_event}]" if f.done else " — открыто"
+            lines.append(f"- {f.text.rstrip('.')}{tail} [{f.event_code}]{status}")
+        blocks.append("\n".join(lines))
+    body = "\n".join(out).rstrip()
+    # вставляем после «Проекты и этапы» (или в конец), чтобы порядок разделов не менялся
+    pos = re.search(r"^## (Что нового|Противоречия|Личное)", body, re.M)
+    joined = "\n\n".join(blocks)
+    if not joined:
+        return body
+    return (body[: pos.start()].rstrip() + "\n\n" + joined + "\n\n" + body[pos.start():]) if pos else (body + "\n\n" + joined)
+
+
+def fix_wiki_sections(s: Session) -> int:
+    """Один раз при запуске: пересобрать эти разделы в последней версии вики каждого клиента (без ИИ)."""
+    n = 0
+    for o in s.scalars(select(Org)):
+        w = latest_wiki(s, o.id)
+        if w is None:
+            continue
+        new = commitments_sections(s, o.id, w.text)
+        if new != w.text:
+            w.text, n = new, n + 1
+    s.commit()
+    return n
 
 
 def _clean(s: Session, text: str) -> str:
