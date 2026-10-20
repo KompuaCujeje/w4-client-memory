@@ -130,6 +130,8 @@ def brief(s: Session, org: Org) -> str:
 
     card = org_card_json(s, org.id)
     today = analytics.as_of(s)
+    # выполненные обещания и ожидания в справку не попадают — ИИ иначе пишет их в «не сделали»
+    card["facts"] = [f for f in card.get("facts", []) if not (f.get("kind") in ("promise", "waiting", "request") and f.get("done"))]
     card["deals"] = [
         {"project": d.project.title, "stage": d.project.stage, "last_contact": str(d.last_contact or ""), "event": d.last_contact_event,
          "stale": d.stale, "risks": [f"{r.text} [{r.event_code}]" for r in d.risks]}
