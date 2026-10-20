@@ -138,11 +138,12 @@ def hidden_links(s: Session, g: Graph) -> list[dict]:
         if e["kind"] in ("работает в", "работал в", "состоит в") and e["from"].startswith("person"):
             person_orgs.setdefault(e["from"], []).append((e["to"], e["kind"], ",".join(e["events"])))
     label = {k: v["label"] for k, v in g.nodes.items()}
+    clients = {e["from"] for e in g.edges if e["kind"] == "проект"}  # наши клиенты — организации со сделками
     for e in g.edges:
         if e["kind"] == "знаком с" or "учил" in e["kind"]:
             a, b = e["from"], e["to"]
-            oa = person_orgs.get(a, [])
-            ob = person_orgs.get(b, [])
+            oa = [x for x in person_orgs.get(a, []) if x[1] != "состоит в" and x[0] in clients]
+            ob = [y for y in person_orgs.get(b, []) if y[1] != "состоит в" and y[0] in clients]
             for x in oa:
                 for y in ob:
                     if x[0] != y[0]:
@@ -162,8 +163,8 @@ def hidden_links(s: Session, g: Graph) -> list[dict]:
         for i in range(len(ps)):
             for j in range(i + 1, len(ps)):
                 a, b = ps[i][0], ps[j][0]
-                wa = [o for o, k, _ in person_orgs.get(a, []) if k != "состоит в" and o != x]
-                wb = [o for o, k, _ in person_orgs.get(b, []) if k != "состоит в" and o != x]
+                wa = [o for o, k, _ in person_orgs.get(a, []) if k != "состоит в" and o != x and o in clients]
+                wb = [o for o, k, _ in person_orgs.get(b, []) if k != "состоит в" and o != x and o in clients]
                 for oa in wa:
                     for ob in wb:
                         if oa != ob:
@@ -177,7 +178,7 @@ def hidden_links(s: Session, g: Graph) -> list[dict]:
                             )
     for p, orgs in person_orgs.items():
         names = {o for o, _, _ in orgs}
-        if len(names) > 1:
+        if len(names) > 1 and names & clients:
             out.append(
                 {
                     "text": f"{label[p]} связан с несколькими организациями: " + ", ".join(f"{label[o]} ({k})" for o, k, _ in orgs),
