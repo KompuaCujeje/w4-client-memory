@@ -139,8 +139,8 @@ def funnel(s: Session, manager: str | None = None) -> list[dict]:
     return out
 
 
-def managers(s: Session) -> list[dict]:
-    today = as_of(s)
+def managers(s: Session, today: dt.date | None = None) -> list[dict]:
+    today = today or as_of(s)
     leads = _table_leads(s)
     out = []
     for m in MANAGERS:

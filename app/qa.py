@@ -12,9 +12,14 @@ from .db import Conflict, Event, Fact, Org, Person, Project
 from .ingest import org_card_json
 
 
-def base_context(s: Session) -> str:
-    today = analytics.as_of(s)
-    lines = [f"Дата вопроса (последнее загруженное событие): {today}", ""]
+def base_context(s: Session, today=None) -> str:
+    last = analytics.as_of(s)
+    today = today or last
+    lines = [
+        f"Дата вопроса: {today}" + (" (названа в вопросе)" if today != last else " (последнее загруженное событие)")
+        + f"; данные — до {last}",
+        "",
+    ]
     lines.append("== ОРГАНИЗАЦИИ, ПРОЕКТЫ, ЛЮДИ ==")
     for o in s.scalars(select(Org).order_by(Org.id)):
         al = f" (другие имена: {', '.join(o.aliases)})" if o.aliases else ""
@@ -83,7 +88,7 @@ def base_context(s: Session) -> str:
             f"Воронка {'всего' if m is None else m}: "
             + "; ".join(f"{r['stage']} {r['count']}" + (f" (конверсия {r['conv']}%)" if r.get("conv") is not None else "") for r in fn)
         )
-    rows = analytics.managers(s)
+    rows = analytics.managers(s, today)
     for r in rows:
         lines.append(
             f"Менеджер {r['manager']}: сделок в таблице {r['deals']}, пропущенных дат этапов {r['missing']}, "
@@ -104,8 +109,26 @@ def clean_refs(s: Session, text: str) -> str:
     return re.sub(r"\[((?:[EU]\d+(?:[.#]\d+)?)(?:\s*[,;]\s*[EU]\d+(?:[.#]\d+)?)*)\]", fix, text or "")
 
 
+def question_date(s: Session, question: str, bare: bool = False):
+    """«на 30.09», «на 30.09.2026» (или просто «30.09» при bare) — дата вопроса; иначе дата последнего события. Не раньше последнего события."""
+    import datetime as dt
+
+    last = analytics.as_of(s)
+    pat = r"(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?" if bare else r"\bна\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?"
+    m = re.search(pat, question or "")
+    if not m:
+        return last
+    y = int(m.group(3)) if m.group(3) else last.year
+    y = y + 2000 if y < 100 else y
+    try:
+        d = dt.date(y, int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return last
+    return d if d >= last else last
+
+
 def answer(s: Session, question: str) -> str:
-    ctx = base_context(s)
+    ctx = base_context(s, question_date(s, question))
     return clean_refs(s, llm.chat_text(prompts.ANSWER_SYSTEM, f"БАЗА CRM:\n{ctx}\n\nВОПРОС: {question}"))
 
 
@@ -125,11 +148,11 @@ def find_org_by_text(s: Session, text: str) -> Org | None:
     return best[0] if best else None
 
 
-def brief(s: Session, org: Org) -> str:
+def brief(s: Session, org: Org, today=None) -> str:
     import json
 
     card = org_card_json(s, org.id)
-    today = analytics.as_of(s)
+    today = today or analytics.as_of(s)
     # выполненные обещания и ожидания в справку не попадают — ИИ иначе пишет их в «не сделали»
     card["facts"] = [f for f in card.get("facts", []) if not (f.get("kind") in ("promise", "waiting", "request") and f.get("done"))]
     card["deals"] = [
@@ -166,11 +189,11 @@ def codes_in(text: str) -> list[str]:
 __all__ = ["answer", "brief", "find_org_by_text", "is_question", "codes_in", "base_context", "Project"]
 
 
-def company_brief(s: Session, org: Org) -> str:
+def company_brief(s: Session, org: Org, today=None) -> str:
     import json
 
     card = org_card_json(s, org.id)
-    today = analytics.as_of(s)
+    today = today or analytics.as_of(s)
     card["deals"] = [
         {"project": d.project.title, "product": d.project.product, "stage": d.project.stage, "last_contact": str(d.last_contact or ""),
          "event": d.last_contact_event, "stale": d.stale}

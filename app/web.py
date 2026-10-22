@@ -204,13 +204,14 @@ def org_links(s, o: Org) -> list[dict]:
 
 
 @router.get("/org/{org_id}/brief", response_class=HTMLResponse)
-def org_brief(request: Request, org_id: int):
+def org_brief(request: Request, org_id: int, na: str = ""):
     with session() as s:
         o = s.get(Org, org_id)
         if o is None:
             return HTMLResponse("Нет такой организации", 404)
-        text = qa.brief(s, o)
-        return render(request, "brief.html", o=o, text=text, as_of=analytics.as_of(s))
+        day = qa.question_date(s, na, bare=True)
+        text = qa.brief(s, o, day)
+        return render(request, "brief.html", o=o, text=text, as_of=day)
 
 
 @router.get("/people", response_class=HTMLResponse)
@@ -541,13 +542,14 @@ def version():
 
 
 @router.get("/org/{org_id}/research", response_class=HTMLResponse)
-def org_research(request: Request, org_id: int):
+def org_research(request: Request, org_id: int, na: str = ""):
     with session() as s:
         o = s.get(Org, org_id)
         if o is None:
             return HTMLResponse("Нет такой организации", 404)
-        text = qa.company_brief(s, o)
-        return render(request, "brief.html", o=o, text=text, as_of=analytics.as_of(s), title=f"Справка о компании: {o.name}", back=f"/org/{o.id}")
+        day = qa.question_date(s, na, bare=True)
+        text = qa.company_brief(s, o, day)
+        return render(request, "brief.html", o=o, text=text, as_of=day, title=f"Справка о компании: {o.name}", back=f"/org/{o.id}")
 
 
 @router.get("/person/{pid}/research", response_class=HTMLResponse)
