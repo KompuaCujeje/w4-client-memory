@@ -1149,6 +1149,17 @@ def floor_stages(s: Session) -> list[int]:
         if fs and fs[0].date:
             _set_stage(p, "потребность", fs[0].date, fs[0].event_code.split(".")[0])
             changed.append(p.org_id)
+    # «оценка и предложение» — вводные у нас, мы готовим оценку/предложение: есть наше открытое обещание
+    # подготовить оценку или предложение и мы ничего не ждём от клиента (ТЗ, вводные)
+    for p in s.scalars(select(Project).where(Project.stage.in_(["знакомство", "потребность"]), Project.duplicate_of.is_(None))):
+        if "#" in (p.source or ""):
+            continue
+        facts = [f for f in s.scalars(select(Fact).where(Fact.project_id == p.id).order_by(Fact.date, Fact.id)) if not f.superseded_by]
+        waiting = [f for f in facts if f.kind == "waiting" and not f.done]
+        prep = [f for f in facts if f.kind == "promise" and not f.done and re.search(r"оценк|предложени|смет", f.text.lower())]
+        if prep and not waiting and prep[0].date:
+            _set_stage(p, "оценка и предложение", prep[0].date, prep[0].event_code.split(".")[0])
+            changed.append(p.org_id)
     return changed
 
 
