@@ -50,14 +50,13 @@ def base_context(s: Session, today=None) -> str:
                 mark.append(f"заменено [{f.superseded_by}]")
             if not f.confirmed:
                 mark.append("не подтверждено")
-            if f.done:
+            ev = s.scalar(select(Event).where(Event.code == f.event_code)) if f.kind == "promise" else None
+            if ev is not None and not ev.live_contact and f.channel in ("записка", "голосовая"):
+                mark.append("план менеджера из его записки, не обещание клиенту")
+            elif f.done:
                 mark.append(f"выполнено [{f.done_event}]")
             elif f.kind in ("promise", "waiting", "request"):
-                ev = s.scalar(select(Event).where(Event.code == f.event_code))
-                if f.kind == "promise" and ev is not None and not ev.live_contact and f.channel in ("записка", "голосовая"):
-                    mark.append("план менеджера из его записки, не обещание клиенту")
-                else:
-                    mark.append("ОТКРЫТО: выполнения в базе нет")
+                mark.append("ОТКРЫТО: выполнения в базе нет")
             if f.kind == "risk" and not analytics.RISK_RULE_RE.search(f.text or ""):
                 mark.append("сигнал, не риск по словарю")
             if f.confidential:
