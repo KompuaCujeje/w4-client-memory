@@ -34,7 +34,9 @@ def base_context(s: Session, today=None) -> str:
             if st.stale:
                 flags.append(f"ПРОТУХЛА: нет живого контакта {st.days} дн.")
             if st.risks:
-                flags.append("В РИСКЕ: " + "; ".join(f"{r.text} [{r.event_code}]" for r in st.risks))
+                flags.append("В РИСКЕ на дату вопроса: " + "; ".join(f"с {r.date} — {r.text} [{r.event_code}]" for r in st.risks))
+            for r, stg, ev, d in st.past:
+                flags.append(f"был риск с {r.date} — {r.text} [{r.event_code}], снят {d}: сделка перешла на «{stg}» [{ev}]")
             hist = " → ".join(f"{h['stage']} {h['date']} [{h['event']}]" for h in p.stage_history or [])
             lines.append(
                 f"  проект {p.id}: {p.title} / {p.product}; менеджер {p.manager or '—'}; этап «{p.stage}»; история: {hist}; "
@@ -50,6 +52,14 @@ def base_context(s: Session, today=None) -> str:
                 mark.append("не подтверждено")
             if f.done:
                 mark.append(f"выполнено [{f.done_event}]")
+            elif f.kind in ("promise", "waiting", "request"):
+                ev = s.scalar(select(Event).where(Event.code == f.event_code))
+                if f.kind == "promise" and ev is not None and not ev.live_contact and f.channel in ("записка", "голосовая"):
+                    mark.append("план менеджера из его записки, не обещание клиенту")
+                else:
+                    mark.append("ОТКРЫТО: выполнения в базе нет")
+            if f.kind == "risk" and not analytics.RISK_RULE_RE.search(f.text or ""):
+                mark.append("сигнал, не риск по словарю")
             if f.confidential:
                 mark.append("конфиденциально")
             lines.append(f"  - {f.kind}: {f.text} [{f.event_code}, {f.date}, {f.channel}]" + (f" ({', '.join(mark)})" if mark else ""))
@@ -95,6 +105,7 @@ def base_context(s: Session, today=None) -> str:
             f"открытых без контакта >42 дн. {r['stale']} ({', '.join(d.project.org.name for d in r['stale_deals'])})"
         )
     lines.append(analytics.RULE_WORSE + f" По правилу хуже: {analytics.worse_manager(rows)}.")
+    lines.append(analytics.RULE_RISK)
     return "\n".join(lines)
 
 
@@ -102,11 +113,15 @@ def clean_refs(s: Session, text: str) -> str:
     """Убирает ссылки на несуществующие события: ИИ не должен выдумывать источники."""
     known = set(s.scalars(select(Event.code)))
 
-    def fix(m):
-        codes = [c for c in re.split(r"\s*[,;]\s*", m.group(1)) if c in known]
-        return "[" + ", ".join(codes) + "]" if codes else ""
+    tok = r"[ESU]\d+(?:[.#]\d+)?(?:,\s*\d{4}-\d{2}-\d{2})?"
 
-    return re.sub(r"\[((?:[EU]\d+(?:[.#]\d+)?)(?:\s*[,;]\s*[EU]\d+(?:[.#]\d+)?)*)\]", fix, text or "")
+    def fix(m):
+        parts = [p.strip() for p in re.split(r"\s*;\s*|\s*,\s*(?=[ESU]\d)", m.group(1))]
+        keep = [p for p in parts if re.match(r"[ESU]\d+(?:[.#]\d+)?", p).group(0) in known]
+        sep = "; " if any("," in p for p in keep) else ", "
+        return "[" + sep.join(keep) + "]" if keep else ""
+
+    return re.sub(rf"\[({tok}(?:\s*[,;]\s*{tok})*)\]", fix, text or "")
 
 
 def question_date(s: Session, question: str, bare: bool = False):

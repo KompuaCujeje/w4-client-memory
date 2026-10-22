@@ -17,7 +17,10 @@ from .db import CLOSED, MANAGERS, STAGES, Conflict, Event, Fact, Job, Org, Perso
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-CODE_RE = re.compile(r"\[((?:[EU]\d+(?:[.#]\d+)?)(?:\s*[,;]\s*[EU]\d+(?:[.#]\d+)?)*)\]")
+# [E01], [E01, E03], [S07], [E16, 2026-09-10; S12, 2026-09-20] — коды событий и внешних источников, дата у кода — просто текст
+REF_TOKEN = r"[ESU]\d+(?:[.#]\d+)?(?:,\s*\d{4}-\d{2}-\d{2})?"
+CODE_RE = re.compile(rf"\[({REF_TOKEN}(?:\s*[,;]\s*{REF_TOKEN})*)\]")
+ONE_CODE = re.compile(r"[ESU]\d+(?:[.#]\d+)?")
 
 KIND_NAMES = {
     "need": "Задача клиента",
@@ -50,8 +53,7 @@ def linkify(text: str) -> str:
     esc = html.escape(text or "")
 
     def rep(m):
-        codes = re.split(r"\s*[,;]\s*", m.group(1))
-        return "[" + ", ".join(f'<a class="src" href="{code_href(c)}">{c}</a>' for c in codes) + "]"
+        return "[" + ONE_CODE.sub(lambda c: f'<a class="src" href="{code_href(c.group(0))}">{c.group(0)}</a>', m.group(1)) + "]"
 
     return CODE_RE.sub(rep, esc)
 
