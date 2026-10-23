@@ -56,7 +56,7 @@ def base_context(s: Session, today=None) -> str:
             elif f.done:
                 mark.append(f"выполнено [{f.done_event}]")
             elif f.kind in ("promise", "waiting", "request"):
-                mark.append("ОТКРЫТО: выполнения в базе нет")
+                mark.append("НЕ ВЫПОЛНЕНО на дату вопроса")
             if f.kind == "risk" and not analytics.RISK_RULE_RE.search(f.text or ""):
                 mark.append("сигнал, не риск по словарю")
             if f.confidential:
@@ -141,9 +141,24 @@ def question_date(s: Session, question: str, bare: bool = False):
     return d if d >= last else last
 
 
+def sentences(text: str) -> int:
+    """Сколько предложений: точка/!/? и дальше заглавная буква или конец; сокращения с датами не режут."""
+    t = re.sub(r"\[[^\]]*\]", "", text or "")
+    t = re.sub(r"\d+\.\d+(\.\d+)?", "D", t)
+    return len([x for x in re.split(r"(?<=[.!?])\s+(?=[А-ЯЁA-Z«])", t.strip()) if x.strip()])
+
+
 def answer(s: Session, question: str) -> str:
     ctx = base_context(s, question_date(s, question))
-    return clean_refs(s, llm.chat_text(prompts.ANSWER_SYSTEM, f"БАЗА CRM:\n{ctx}\n\nВОПРОС: {question}"))
+    text = llm.chat_text(prompts.ANSWER_SYSTEM, f"БАЗА CRM:\n{ctx}\n\nВОПРОС: {question}")
+    if sentences(text) > 3:
+        # словарь: ответ до трёх предложений — сжимаем, ничего не добавляя
+        text = llm.chat_text(
+            "Сожми ответ до НЕ БОЛЕЕ ТРЁХ предложений, без списков и заголовков. Сохрани все цифры, даты, названия и ссылки "
+            "в квадратных скобках; ничего не добавляй. Перечни — через точку с запятой внутри предложения.",
+            text,
+        )
+    return clean_refs(s, text)
 
 
 def find_org_by_text(s: Session, text: str) -> Org | None:
